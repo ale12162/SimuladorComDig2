@@ -109,7 +109,10 @@ for p = 1:numel(perfiles)
     R(p).SNR    = snr;
     R(p).Nsym   = nsy;
     R(p).w      = wfin;
-    R(p).h      = cfg.ch.h;
+    % se guarda el canal NORMALIZADO, que es el que efectivamente atraviesa
+    % la senal (channel.m normaliza a energia unitaria); asi la figura y la
+    % simulacion muestran los mismos dB
+    R(p).h      = cfg.ch.h / norm(cfg.ch.h);
 end
 
 fprintf('\nTiempo total: %.1f min\n', toc(tini)/60);
@@ -135,31 +138,60 @@ xlabel('E_b/N_0 [dB]'); ylabel('BER');
 title('16-QAM - BER vs E_b/N_0 para distintos canales');
 legend('Location','southwest'); ylim([1e-6 1]);
 
-%% ================== Figura 2: canal, FFE y producto ==================
+%% ================== Figura 2: canal y FFE ==================
+% Ejes en Hz. El espectro se muestra completo porque los taps del FFE son
+% complejos y su respuesta no tiene por que ser simetrica; el zoom se hace
+% a la banda util.
 OVS = cfg0.rate.OVS_DSP;
+BR  = cfg0.rate.BR;
+GHz = 1e9;
+
+% El canal esta espaciado en simbolo, de modo que |H(f)| es periodica con
+% periodo BR: graficar mas alla de una banda de Nyquist repite informacion.
+% Se acota al ancho de banda que realmente ocupa la senal, (1+beta)/2*BR.
+FMAX = (1+cfg0.tx.rolloff)/2*BR;
+
 fig2 = figure('Name','Ej.2 - Respuestas','Color','w');
-
 for p = 1:numel(perfiles)
-    % canal @OVS_CH -> eje en f/BR
-    [Hc, fc] = freqz(R(p).h, 1, 2048, 'whole');
-    fc = fc/(2*pi)*cfg0.rate.OVS_CH; fc(fc > cfg0.rate.OVS_CH/2) = fc(fc > cfg0.rate.OVS_CH/2) - cfg0.rate.OVS_CH;
-    [fc, ic] = sort(fc); Hc = Hc(ic);
-
-    % FFE @OVS_DSP
-    [Hw, fw] = freqz(R(p).w, 1, 2048, 'whole');
-    fw = fw/(2*pi)*OVS; fw(fw > OVS/2) = fw(fw > OVS/2) - OVS;
-    [fw, iw] = sort(fw); Hw = Hw(iw);
+    [Hc, fc] = resp(R(p).h, cfg0.rate.OVS_CH*BR);
+    [Hw, fw] = resp(R(p).w, OVS*BR);
 
     subplot(2,2,p);
-    plot(fc, 20*log10(abs(Hc)+eps), 'LineWidth', 1.1); hold on
-    plot(fw, 20*log10(abs(Hw)+eps), 'LineWidth', 1.1);
-    grid on; xlim([-1 1]); xlabel('f / BR'); ylabel('|H| [dB]');
+    plot(fc/GHz, 20*log10(abs(Hc)+eps), 'LineWidth', 1.1); hold on
+    plot(fw/GHz, 20*log10(abs(Hw)+eps), 'LineWidth', 1.1);
+    grid on; xlim([-FMAX FMAX]/GHz);
+    xlabel('f [GHz]'); ylabel('|H| [dB]');
     title(R(p).label, 'FontSize', 9);
     if p == 1, legend({'Canal','FFE'}, 'Location','south','FontSize',7); end
 end
 if exist('sgtitle','file')
     sgtitle('Respuesta del canal y respuesta final del FFE');
 end
+
+%% ============ Figura 2b: comparacion de los canales ============
+fig2b = figure('Name','Ej.2 - Comparacion de canales','Color','w');
+subplot(1,2,1); hold on
+for p = 1:numel(perfiles)
+    [Hc, fc] = resp(R(p).h, cfg0.rate.OVS_CH*BR);
+    plot(fc/GHz, 20*log10(abs(Hc)+eps), 'Color', co(p,:), 'LineWidth', 1.3, ...
+         'DisplayName', R(p).label);
+end
+grid on; box on; xlim([-FMAX FMAX]/GHz);
+xlabel('f [GHz]'); ylabel('|H(f)| [dB]');
+title('Canales'); legend('Location','south','FontSize',7);
+
+subplot(1,2,2); hold on
+for p = 1:numel(perfiles)
+    zr = roots(R(p).h(R(p).h ~= 0));
+    if isempty(zr), continue; end
+    plot(real(zr), imag(zr), 'o', 'Color', co(p,:), 'MarkerFaceColor', co(p,:), ...
+         'MarkerSize', 7, 'DisplayName', R(p).label);
+end
+th = linspace(0,2*pi,400);
+plot(cos(th), sin(th), 'k--', 'HandleVisibility','off');
+grid on; box on; axis equal; xlim([-1.2 1.2]); ylim([-1.2 1.2]);
+xlabel('Re\{z\}'); ylabel('Im\{z\}');
+title('Raices de H(z): el modulo fija la profundidad del nulo');
 
 %% ================== Figura 3: penalidad de SNR ==================
 fig3 = figure('Name','Ej.2 - Penalidad','Color','w'); hold on
@@ -175,16 +207,15 @@ legend('Location','northwest');
 
 %% ================== Exportado de figuras para LaTeX ==================
 % Nombres coincidentes con los \includegraphics de ej2_contenido.tex
-if exist('exportgraphics','file')          % R2020a en adelante
-    exportgraphics(fig1, 'ej2_ber.png',        'Resolution', 300);
-    exportgraphics(fig2, 'ej2_respuestas.png', 'Resolution', 300);
-    exportgraphics(fig3, 'ej2_penalidad.png',  'Resolution', 300);
-else                                        % versiones anteriores
-    print(fig1, 'ej2_ber',        '-dpng', '-r300');
-    print(fig2, 'ej2_respuestas', '-dpng', '-r300');
-    print(fig3, 'ej2_penalidad',  '-dpng', '-r300');
+figs = {fig1 'ej2_ber'; fig2 'ej2_respuestas'; fig2b 'ej2_canales'; fig3 'ej2_penalidad'};
+for k = 1:size(figs,1)
+    if exist('exportgraphics','file')       % R2020a en adelante
+        exportgraphics(figs{k,1}, [figs{k,2} '.png'], 'Resolution', 300);
+    else
+        print(figs{k,1}, figs{k,2}, '-dpng', '-r300');
+    end
 end
-fprintf('Figuras exportadas: ej2_ber.png, ej2_respuestas.png, ej2_penalidad.png\n');
+fprintf('Figuras exportadas: %s\n', strjoin(figs(:,2).', ', '));
 
 %% ================== Tabla lista para pegar en LaTeX ==================
 % Imprime las filas de la tabla de calibracion con TUS numeros medidos.
@@ -201,4 +232,28 @@ end
 
 %% ================== Guardado ==================
 save('ej2_resultados.mat', 'R', 'cfg0', 'perfiles', 'etiqueta');
+
+%% ================== Funciones locales ==================
+function [H,f] = resp(h, fs)
+% Respuesta en frecuencia completa (-fs/2 a fs/2) y eje en Hz.
+% No se pliega a la mitad: los taps del FFE son complejos y |W(f)| no es
+% simetrica.
+[H,ff] = freqz(h, 1, 4096, 'whole');
+f = ff/(2*pi)*fs;
+f(f > fs/2) = f(f > fs/2) - fs;
+[f,i] = sort(f);  H = H(i);
+end
 fprintf('\nResultados guardados en ej2_resultados.mat\n');
+
+
+% load ej2_resultados.mat
+% p  = 1;                                   % canal impulso
+% ok = isfinite(R(p).BER) & R(p).BER > 0;
+% eb  = R(p).EbN0(ok);   ber = R(p).BER(ok);
+% 
+% ebt  = (4:0.001:22).';                    % Eb/N0 que la analitica necesita
+% bert = ber_theory_qam(ebt, 16);
+% eb_req = interp1(flipud(log10(bert)), flipud(ebt), log10(ber));
+% 
+% fprintf('\n Eb/N0     BER      analitica    penalidad\n');
+% fprintf('%5.1f  %.3e   %6.2f dB   %+6.3f dB\n', [eb(:) ber(:) eb_req(:) eb(:)-eb_req(:)].');

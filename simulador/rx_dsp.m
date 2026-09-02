@@ -18,6 +18,13 @@ function out = rx_dsp(x, cfg)
 %                     Rango de deteccion de wrap: |f|<BR/8 (misma cota que
 %                     el detector de 4a potencia, por la ambiguedad mod pi/2).
 %                     Gear shifting: mu_acq (etapa 2) / mu_trk (etapa 3).
+%
+%                     GANANCIA: el bang-bang no entrega el error sino un paso
+%                     fijo cuya FRECUENCIA de ocurrencia es proporcional al
+%                     error: P(wrap) = |Dres|/(pi/2), asi que el paso esperado
+%                     es (2/pi)*mu*Dres.  Para igualar la ganancia de lazo de
+%                     un detector lineal (4a potencia) hay que usar mu*pi/2.
+%                     Ver cfg.rx.rfd.mu_acq / mu_trk.
 %     FCR (fina)    : DPLL de 2do orden. PED '4th' o 'dd'.
 %                     I[n] = I[n-1] + ki*e ;  theta[n+1] = theta[n] + kp*e + I[n] + f_rfd
 %
@@ -66,19 +73,34 @@ rd = cfg.rx.cpr.rd(:).';     % radios "diagonales"  (arg(a^4) = pi)
 ro = cfg.rx.cpr.ro(:).';     % radios restantes
 ring_en = cfg.rx.cpr.ring_en && ~isempty(ro);
 
+% el historial de angulo del RFD se mantiene en TODAS las etapas donde el
+% RFD pueda llegar a usarse, no solo mientras esta adaptando: asi al
+% reencenderlo no arranca comparando contra una muestra vieja
+rfd_used = any(~strcmp({stages.rfd_mode}, 'off'));
+
 %% ---- buffers de salida ----
-y_ffe  = zeros(Nsym,1);
-y_rot  = zeros(Nsym,1);
-a_hat  = zeros(Nsym,1);
-th_v   = zeros(Nsym,1);
-int_v  = zeros(Nsym,1);
-frfd_v = zeros(Nsym,1);
-eph_v  = zeros(Nsym,1);
-emag_v = zeros(Nsym,1);
-wdec   = max(1, cfg.dbg.wdec);
-Nw     = floor(Nsym/wdec);
-w_hist = zeros(Nt, Nw);
-kw     = 0;
+% Con dbg apagado se omiten las trazas que solo usa el modulo de debug:
+% en un barrido de BER con millones de simbolos eso ahorra cientos de MB.
+dbg = cfg.dbg.en;
+
+y_rot  = complex(zeros(Nsym,1));   % entrada al slicer (necesaria para BER)
+a_hat  = complex(zeros(Nsym,1));
+int_v  = zeros(Nsym,1);            % rama integral FCR (la piden Ej.3/Ej.4)
+frfd_v = zeros(Nsym,1);            % rama integral RFD (idem)
+
+if dbg
+    y_ffe  = complex(zeros(Nsym,1));
+    th_v   = zeros(Nsym,1);
+    eph_v  = zeros(Nsym,1);
+    emag_v = zeros(Nsym,1);
+    wdec   = max(1, cfg.dbg.wdec);
+    Nw     = floor(Nsym/wdec);
+    w_hist = complex(zeros(Nt, Nw));
+else
+    y_ffe = []; th_v = []; eph_v = []; emag_v = [];
+    wdec  = max(1, cfg.dbg.wdec); Nw = 0; w_hist = [];
+end
+kw = 0;
 
 for n = 1:Nsym
     st = stages(stg_id(n));
@@ -121,23 +143,25 @@ for n = 1:Nsym
         otherwise,  mu_f = 0;
     end
     rfd_step = 0;
-    if mu_f > 0
+    if rfd_used
         if sel
             ang_curr = mod(angle(yr), pi/2) - pi/4;    % angulo plegado a (-pi/4,pi/4]
-            if rfd_sel_prv
+            if mu_f > 0 && rfd_sel_prv
                 diff_ang = ang_curr - rfd_ang_prv;
                 if abs(diff_ang) > pi/4                % hubo "wrap" -> senal de frecuencia
                     rfd_step = -sign(diff_ang) * mu_f;
                 end
             end
-            rfd_ang_prv = ang_curr;
+            rfd_ang_prv = ang_curr;                    % se actualiza siempre
             rfd_sel_prv = true;
         else
             rfd_sel_prv = false;                       % se corta la referencia diferencial
         end
     end
-    f_rfd = f_rfd + rfd_step;
-    f_rfd = min(max(f_rfd, -cfg.rx.rfd.flim), cfg.rx.rfd.flim);
+    if rfd_step ~= 0
+        f_rfd = f_rfd + rfd_step;
+        f_rfd = min(max(f_rfd, -cfg.rx.rfd.flim), cfg.rx.rfd.flim);
+    end
 
     % ---------------- Actualizacion del NCO ----------------
     if st.fcr_en
@@ -165,17 +189,19 @@ for n = 1:Nsym
     end
 
     % ---------------- registro ----------------
-    y_ffe(n)  = y;
     y_rot(n)  = yr;
     a_hat(n)  = ah;
-    th_v(n)   = theta;
     int_v(n)  = int_fcr;
     frfd_v(n) = f_rfd;
-    eph_v(n)  = e_ph;
-    emag_v(n) = abs(ah - yr)^2;
 
-    if mod(n, wdec) == 0 && kw < Nw
-        kw = kw + 1;  w_hist(:,kw) = w;
+    if dbg
+        y_ffe(n)  = y;
+        th_v(n)   = theta;
+        eph_v(n)  = e_ph;
+        emag_v(n) = abs(ah - yr)^2;
+        if mod(n, wdec) == 0 && kw < Nw
+            kw = kw + 1;  w_hist(:,kw) = w;
+        end
     end
 end
 
@@ -189,7 +215,7 @@ out.f_rfd   = frfd_v;     % rama integral del RFD [rad/simbolo]
 out.e_ph    = eph_v;
 out.mse     = emag_v;
 out.w       = w;
-out.w_hist  = w_hist(:,1:kw);
+if kw > 0, out.w_hist = w_hist(:,1:kw); else, out.w_hist = []; end
 out.w_dec   = wdec;
 out.stage   = stg_id;
 out.stages  = stages;

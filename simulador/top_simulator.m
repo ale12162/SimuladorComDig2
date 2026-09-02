@@ -39,8 +39,14 @@ al  = aligner(dsp.a_hat, tx.sym, idx_al, cfg);
 idx_cs = [idx_al; dsp.idx_ber];
 cs  = cycle_slip_correction(dsp.y_rot, dsp.a_hat, al, idx_cs, cfg);
 
+%% ---- Receptor MMSE insesgado ----
+% El DD-LMS encoge la constelacion por alpha = gamma/(1+gamma); se quita esa
+% ganancia de forma ciega antes de medir. Fuera de los lazos adaptativos.
+[y_ub, g_bias] = bias_removal(cs.y_rot, cs.a_hat, dsp.idx_ber, cfg);
+
 %% ---- Etapa 7: estimacion de BER ----
-ber = ber_checker(cs.y_rot, al, dsp.idx_ber, tx, cfg);
+ber = ber_checker(y_ub, al, dsp.idx_ber, tx, cfg);
+ber.g_bias = g_bias;
 
 %% ================= SALIDA =====================
 out.cfg  = cfg;

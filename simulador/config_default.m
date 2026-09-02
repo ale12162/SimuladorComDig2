@@ -44,7 +44,12 @@ cfg.rx.aaf.order  = 64;
 %% ---------------- Receptor: AGC ----------------
 cfg.rx.agc.en     = true;
 cfg.rx.agc.Pref   = 1;           % potencia media objetivo
-cfg.rx.agc.mu     = 1e-3;
+% mu=1e-3 deja un jitter de ganancia de ~2% (std ~ sqrt(mu/2)). Como es un
+% deterioro MULTIPLICATIVO, su peso relativo crece con la SNR: la penalidad
+% pasaba de 0.10 dB a 12 dB hasta 0.17 dB a 16 dB. Con 1e-4 queda plana en
+% ~0.06 dB. La constante de tiempo (~5k simbolos) sigue holgada frente a los
+% 60k de la etapa 1.
+cfg.rx.agc.mu     = 1e-4;
 cfg.rx.agc.g0     = 1;
 cfg.rx.agc.glim   = [1e-3 1e3];
 
@@ -69,9 +74,20 @@ cfg.rx.cpr.ring_en = true;
 % Gear shifting: ganancia alta para adquirir (etapa 2) y baja para trackear
 % (etapa 3).  Con una sola ganancia no se puede tener a la vez rango de
 % adquisicion +-BR/8 y bajo ruido de estimacion.
-cfg.rx.rfd.mu_acq = 1e-3;
-cfg.rx.rfd.mu_trk = 1e-4;
-cfg.rx.rfd.flim   = 2*pi/8;      % |Dphi| max por simbolo (limite 4a potencia = BR/8)
+%
+% El factor pi/2 compensa la ganancia del detector bang-bang: no entrega el
+% error sino un paso fijo con probabilidad P(wrap) = |Dres|/(pi/2), o sea una
+% ganancia efectiva (2/pi) veces la de un detector lineal.  Sin el factor el
+% RFD queda corto cerca del borde del rango (medido: sesgo -0.0021 BR con
+% foff = BR/12, y 1 de cada 6 semillas no engancha).
+cfg.rx.rfd.mu_acq = 1e-3*pi/2;
+cfg.rx.rfd.mu_trk = 1e-4*pi/2;
+% flim NO es una constante del algoritmo: BR/8 es el limite matematico del
+% detector (ambiguedad mod pi/2), pero el valor a usar es la TOLERANCIA DE
+% OFFSET DEL SISTEMA.  Dejarlo en BR/8 cuando el offset real es cero permite
+% que el integrador haga random walk sobre ruido hasta perder el enganche
+% (ver run_ej2.m, donde se acota a BR/500).
+cfg.rx.rfd.flim   = 2*pi/8;      % default: rango completo, para el Ej.4
 
 %% ---------------- Receptor: FCR (DPLL fino) ----------------
 % kp debe cubrir el residuo que deja el RFD: rango de enganche ~ kp*pi/4.
@@ -80,6 +96,12 @@ cfg.rx.fcr.kp     = 2e-2;
 cfg.rx.fcr.ki_ratio = 500;       % ki = kp/500  (consigna Ej.3)
 cfg.rx.fcr.ki     = cfg.rx.fcr.kp/cfg.rx.fcr.ki_ratio;
 cfg.rx.fcr.ilim   = 2*pi/8;      % anti-windup de la rama integral
+
+%% ---------------- Receptor MMSE insesgado ----------------
+% Quita el encogimiento alpha = gamma/(1+gamma) que introduce el DD-LMS.
+% Sin esto la penalidad contra la curva analitica sube ~0.08 dB y no se
+% cumple el requisito de < 0.1 dB del Ej.2.
+cfg.rx.bias.en = true;
 
 %% ---------------- Aligner / Cycle Slip / BER ----------------
 cfg.rx.align.Ncorr = 4096;       % simbolos usados para correlacion
