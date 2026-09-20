@@ -1,0 +1,222 @@
+% Packets
+\title{Author}
+\author{Author}
+\date{13/06/2023}
+
+% Fonts
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}	%	\normalfont	% Fuentes Latin modern
+\usepackage[utf8]{inputenc}	% Distribución que permite formato de texto con tíldes, etc.
+\usepackage[spanish]{babel}	% Español
+\usepackage{booktabs}
+
+% Chapters, Heading, footnotes and captions
+\usepackage{fancyhdr}			% Paquete para notas en la Header y Foot de página
+\usepackage{emptypage}			% Quita los encabezados en las páginas en blanco
+\usepackage[pdftex,
+            pdfauthor={Author},
+            pdftitle={Report TP},
+            pdfsubject={Reporte},
+            %pdfkeywords={Cryogenic, photodetector, HgCdTe - MCT, dark current, cooling capacity, cryocooler},
+            pdfproducer={Documentclass: "Book" with "Latex" in "Ubuntu-Linux"},
+            pdfcreator={Commands: "PDFLaTeX" and "BibTex"},
+	colorlinks=true, citecolor=black, linkcolor=black, urlcolor=black]{hyperref}
+\usepackage[margin=5pt,font=footnotesize,labelfont=bf,labelsep=endash,textfont=it]{caption}	% Manage caption size
+\usepackage{fnpos}				% Para usar \footnote{•}
+\usepackage{ftnxtra}			% Para usar \footnote{•} dentro de un \caption{•}
+\usepackage{lscape}				% Entorno para rotar contenido en la página
+\usepackage[none]{hyphenat}		% Para que no se corte ninguna palabra y la continúe en el renglón de abajo.
+
+% Equations, figs and tables
+\usepackage{float}			% Reconoce campos de tablas, figuras, etc.
+\usepackage{graphicx}		% Gráficos
+\usepackage{subfig}			% Subfiguras
+	\captionsetup[subfigure]{subrefformat=simple,labelformat=simple,listofformat=subsimple} % Conf. letra asoaciada a la sub-figura debajo de cada una.
+	\renewcommand\thesubfigure{(\alph{subfigure})} % Conf. \ref de subfloats.
+\usepackage{wrapfig}			 % Para colocar imágenes que sean rodeadas por texto
+\usepackage{amssymb}			 % Símbolos especiales
+	\usepackage{pifont}		 % Más símbolos que se agregan como \ding{##}
+\usepackage{bm}				     % Fuente matemática: bolt + italic
+\usepackage{amsmath,amsthm,wasysym}     % Paquete matemático - símbolos
+	\usepackage{amsfonts}	 % Fuentes matemáticas
+\usepackage{multirow}	% Unir celdas fila en las tablas
+\usepackage{array}		% Permite fijar ancho de columnas en tablas
+% La siguiente configuración permite fijar anchos de columnas alineadas directamente:
+	\newcolumntype{L}[1]{>{\raggedright\let\newline\\\arraybackslash\hspace{0pt}}m{#1}}
+	\newcolumntype{C}[1]{>{\centering\let\newline\\\arraybackslash\hspace{0pt}}m{#1}}
+	\newcolumntype{R}[1]{>{\raggedleft\let\newline\\\arraybackslash\hspace{0pt}}m{#1}}
+\usepackage{paralist}	% Permite usar \begin{compactitem} para un entorno itemize con espacios reducidos
+
+% Anexxes:
+\usepackage[toc,page]{appendix}					% Paquete para Apéndices (Anexos)
+	\renewcommand{\spanishappendixname}	{Anexo} 	% Reemplaza la palabra Apéndice en cada uno
+	\renewcommand{\appendixtocname}		{Anexos}	% Nombre del encabezado de Anexos en TOC
+	\renewcommand{\appendixpagename}		{ANEXOS}	% Nombre de la portada de "ANEXOS"
+
+% Bibliografía:
+\usepackage[nottoc,notlot,notlof]{tocbibind}	% Para incluir la bibliografía en el índice
+
+% Definición de colores a usar en la configuración de otros paquetes:
+\usepackage{color}
+\definecolor{gray97}{gray}{.97}
+\definecolor{gray75}{gray}{.75}
+\definecolor{gray45}{gray}{.45}
+\setcounter{MaxMatrixCols}{20}	% 20 columnas. (Aceptar matrices con más de 10 columnas)
+
+% Para tener referencia a la última página:
+\usepackage[export]{adjustbox}
+\usepackage{lastpage}
+\usepackage{enumerate}	% Paquete con estilos de enumeración
+
+% Dimensiones:
+\usepackage{geometry}
+\geometry{
+	a4paper,
+	margin=1in
+}
+
+% Interlineado:
+\usepackage{setspace}
+% Opciones: \onehalfspace; \doublespacing; \singlespace; \spacing{Nº}
+\onehalfspace
+\raggedbottom
+
+% Enumeración de ítems:
+\usepackage{blindtext}			% Habilita el uso de \begin{enumerate}
+\usepackage[inline]{enumitem}	% Para poder enumerar dentro del texto con distintos formatos
+
+% Estilo de capítulos:
+\usepackage{titlesec} % (la versión del 2016/03/15 no numera "\section{•}")
+%**********************************
+%%%%%% CORRECCIÓN DEL BUG: %%%%%%
+%**********************************
+	\usepackage{etoolbox}
+		\makeatletter
+		\patchcmd{\ttlh@hang}{\parindent\z@}{\parindent\z@\leavevmode}{}{}
+		\patchcmd{\ttlh@hang}{\noindent}{}{}{}
+		\makeatother
+%**********************************
+% Configuración de capítulos:
+\titleformat{\chapter}[display]
+  {\bfseries\Huge}
+  {\vspace{-1.5cm}\filright\MakeUppercase{\Huge\chaptertitlename} \fontsize{40}{40}\selectfont\thechapter}
+  {1ex}
+  {\titlerule\vspace{1ex}\filleft}
+  [\vspace{1ex}\titlerule]
+  \titlespacing*{\chapter}{0pt}{0pt}{20pt} % Espacio antes del título del "capítulo".
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%% ENCABEZADO Y PIÉ DE PÁGINAS %%%%%
+\newcommand{\EncYpiepaGpreambulo}{
+% Estilo:
+%%	Definición de la página inicial de cada capítulo:
+% Configuración de la línea divisoria:
+\fancypagestyle{plain}{
+\renewcommand{\headrulewidth}{0.0 pt}
+\renewcommand{\footrulewidth}{0.0 pt}
+% Encabezado superior:
+\fancyhead[L]{}
+\fancyhead[C]{}
+\fancyhead[R]{}
+% Encabezado inferior:
+\fancyfoot[L]{}
+\fancyfoot[C]{\thepage}
+\fancyfoot[R]{}
+}
+%%	Definición de las siguientes páginas:
+\pagestyle{fancy}
+% Configuración de la línea divisoria:
+	\renewcommand{\headrulewidth}{0.0 pt}
+	\renewcommand{\footrulewidth}{0.0 pt}
+% L:left, R:right, C:center, O:odd, E:even.
+\fancyhf{} % Debe estar aquí para funcionar la configuración
+% Encabezado superior:
+\fancyhead[RO,LE]{}
+\fancyhead[RE,LO]{}
+% Encabezado inferior:
+\fancyfoot[L]{}
+\fancyfoot[C]{\thepage} % Número de páginas
+\fancyfoot[R]{}
+}
+
+\newcommand{\EncYpiepaGcuerpo}{
+% Estilo:
+% ***	Definición de la página inicial de cada capítulo:
+% Configuración de la línea divisoria:
+\fancypagestyle{plain}{
+\renewcommand{\headrulewidth}{0.0 pt}
+\renewcommand{\footrulewidth}{1.3 pt}
+% Encabezado:
+\fancyhead[L]{}
+\fancyhead[C]{}
+\fancyhead[R]{}
+% Pié de página:
+\fancyfoot[L]{Ingeniería en Computación}
+\fancyfoot[C]{}
+\fancyfoot[R]{Página \thepage \hspace{1 pt} de \pageref{LastPage}} % Número de páginas
+}
+% ***	Definición de las siguientes páginas:
+\pagestyle{fancy}
+% Configuración de la línea divisoria:
+	\renewcommand{\headrulewidth}{1.3 pt}
+	\renewcommand{\footrulewidth}{1.3 pt}
+% L:left, R:right, C:center, O:odd, E:even.
+\fancyhf{} % Debe estar aquí para funcionar la configuración
+% Encabezado:
+\fancyhead[LE]{\slshape\nouppercase{\leftmark}} % \chapter{•}
+\fancyhead[RO]{\slshape\nouppercase{\rightmark}} % \section{•}
+%
+\fancyhead[C]{}
+\fancyfoot[L]{}
+\fancyfoot[C]{}
+\fancyfoot[RO,LE]{\thepage}
+}
+
+%**************************************************************************************************
+
+\newcommand{\EncYpiepaGepilogo}[1]{
+\pagestyle{fancy}
+% Configuración de la línea divisoria:
+	\renewcommand{\headrulewidth}{1.3 pt}
+	\renewcommand{\footrulewidth}{1.3 pt}
+% L:left, R:right, C:center, O:odd, E:even.
+\fancyhf{} % Debe estar aquí para funcionar la configuración
+% Encabezado:
+\fancyhead[R]{}
+\fancyhead[L]{}
+\fancyhead[LE]{\slshape\nouppercase{#1}} % \chapter{•}
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%% PREÁMBULO PARA ACRÓNIMOS %%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\usepackage[acronym,shortcuts,nonumberlist,toc,nomain]{glossaries}
+
+% acronym --> se diferencia de los glosarios, que son "definiciones"
+% nonumberlist --> no genera numeración
+% toc --> aparece en la tabla de contenidos
+% nomain --> no genera el archivo .glo, sino que toma los acrónimos del .tex generado manualmente
+\setglossarystyle{long}					% Utiliza el estilo "long" (el "super" pisa el pié de página)
+\renewcommand{\glsgroupskip}{}			% Hace equidistantes los espacios entre acronimos
+\renewcommand{\glsnamefont}[1]{\textbf{#1}\vspace{.3cm}}	% Pone en negrita los acrónimos
+	\setlength{\glsdescwidth}{4.67 in}	% Ancho que ocupa la Descripción (8.27"-1.6"-1"-1"deACR)
+\makeglossaries							% Invoca codificación de carácteres, soporte de idiomas y xindy ó makeindex
+\usepackage{tabularx}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%% PREÁMBULO PARA DIAGRÁMA SINÓPTICO %%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newenvironment{subgroup}
+  {$\left\{\tabular{l}}
+  {\endtabular\right.$}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%% PAQUETE PARA COMENTARIOS %%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\usepackage{verbatim} % comentarios
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%% AGREGAR UNA PAGINA EN BLANCO %%%%%%
+\usepackage{afterpage}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

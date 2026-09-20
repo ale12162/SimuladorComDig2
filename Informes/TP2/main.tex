@@ -1,0 +1,19 @@
+\documentclass{report}
+\input{Preamble}	% Paquetes + preámbulo de configuraciones.
+
+\title{Justificación de Enlaces Punto a punto}
+\author{Horacio A. Mendoza }
+\date{January 2023}
+
+\begin{document}
+\include{Portada}	% Portada.
+
+\input{Contenido}
+
+% Bibliography
+\renewcommand{\bibname}{Referencias bibliográficas}	% Redefinir el nombre de la sección
+\bibliographystyle{IEEEtran} % Setear el formato de bibliografía - (ieeetr: es IEEEtran ordena por aparición en el texto)
+\nocite{*}
+\bibliography{bibliography}	% Construye la bibliografía
+\end{document}
+
