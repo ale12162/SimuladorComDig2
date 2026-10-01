@@ -1,0 +1,642 @@
+\section*{PARTE 2}
+\subsection*{Ejercicio 1: Desarrollo del simulador}
+\subsubsection*{Implementación}
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=1\linewidth]{ej1.png}
+    \caption{Diagrama en bloques del sistema}
+    \label{fig:ej1}
+\end{figure}
+Se implementó el simulador de forma modular, con un archivo por bloque del
+diagrama de la Figura \ref{fig:ej1} (\texttt{qam\_generator}, \texttt{pulse\_shaping},
+\texttt{resampler}, \texttt{channel}, \texttt{anti\_alias\_filter},
+\texttt{agc}, \texttt{rx\_dsp}, \texttt{aligner},
+\texttt{cycle\_slip\_correction}, \texttt{ber\_checker},
+\texttt{debug\_module}) y una FSM (\texttt{fsm\_rx}) que habilita los
+algoritmos por etapa. La cadena hasta el AGC es vectorizada; el lazo
+FFE/NCO/slicer se procesa símbolo a símbolo.
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{ll}
+\toprule
+Modulación            & 16-QAM \\
+Tasas TX/CH/RX       & 2 / 4 / 2 [SPS], configurables \\
+Pulse shaping         & RRC $\beta = 0.5$, span 20, adaptado en RX \\
+FFE                   & 41 taps a $T/2$, CMA y DD, $\mu_{CMA}=3\cdot10^{-4}$, $\mu_{DD}=3\times10^{-5}$ \\
+CPR                   & RFD + DPLL 2º orden, $k_p = 2\cdot10^{-2}$, $k_i = k_p/500$ \\
+\bottomrule
+\end{tabular}
+\caption{Configuración default.}
+\end{table}
+Los cambios de tasa admiten cualquier terna entera: el RRC se genera al
+$OVS_{TX}$ pedido, el anti-alias al $OVS_{CH}$, y el resampler realiza el cambio de tasa por el factor 
+$L/M = OVS_{out}/OVS_{in}$ y aplica un filtro polifásico para interpolar o diezmar según corresponda.
+\subsubsection*{Diseño}
+\paragraph{Calibración del ruido.}
+Con $P_s$ la potencia media por muestra a la salida del filtro de canal
+(normalizado a energía unitaria) y $E_s = P_s\,OVS_{CH}$,
+%
+\begin{equation}
+\sigma_n^{2} = \frac{P_s \cdot OVS_{CH}}{(E_b/N_0)\,\log_2 M}.
+\label{eq:ej1_ruido}
+\end{equation}
+\paragraph{Cálculo de los errores.}
+El error del CMA, $e = (R_2 - |y|^2)\,y$, se computa antes de la derrotación
+por ser insensible a la fase. Al de DD-LMS, $e = (\hat{a} - y_{rot})\,e^{j\theta}$,
+se le deshace la rotación aplicada por el algoritmo de recuperación de
+portadora, de modo que quede en el mismo dominio que la entrada del FFE; sin
+ese factor el ecualizador compite con el NCO por corregir la misma fase.
+\paragraph{Selección de anillo.}
+En 16-QAM $\arg(a^4)$ no es constante: sólo los ocho puntos con $|I|=|Q|$
+cumplen $\arg(a^4)=\pi$, y los ocho restantes aportan $\pm73.7^\circ$. Se los
+discrimina por módulo (radios $\sqrt{2}s$ y $3\sqrt{2}s$ frente a
+$\sqrt{10}s$), criterio ciego a la fase y por lo tanto válido en adquisición.
+Se aplica al detector de error de fase de cuarta potencia y al RFD.
+\paragraph{RFD.}
+Detector sobre el argumento plegado
+$\varphi = (\arg y_{rot} \bmod \pi/2) - \pi/4$: un cruce de cuadrante
+(\mbox{$|\Delta\varphi| > \pi/4$}) dispara un paso fijo en sentido contrario.
+Rango de adquisición limitado por la ambigüedad de $\pi/2$:
+%
+\begin{equation}
+|f_{offset}| < BR/8.
+\end{equation}
+%
+Se emplean dos ganancias, una de adquisición en la etapa 2 y otra de
+seguimiento en la etapa 3: el residuo del integrador crece con $\sqrt{\mu}$,
+de modo que una única ganancia no cubre a la vez el rango completo y un
+residuo bajo.
+\paragraph{Restricción de diseño del DPLL.}
+Con $k_p = 5\cdot10^{-3}$ el lazo no adquiere enganche: el error de fase no
+converge y el receptor presenta cycle slips, la
+rama integral llega al valor máximo que se le configura y la BER se va a $0.5$; de ahí el valor adoptado
+$k_p = 2\cdot10^{-2}$.
+Nota: El valor de la rama integral debería dispararse a infinito por estar trabajando en punto flotante, colocar un valor máximo fue una decisión de diseño para tratar de lograr una mejor estabilidad.
+\subsubsection*{Gestor de simulación}
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{clcccl}
+\toprule
+\# & Etapa & FFE & RFD & FCR & Condición que habilita \\
+\midrule
+1 & FFE-CMA           & CMA & ---  & ---  & --- \\
+2 & + RFD             & CMA & adq  & ---  & ojo abierto \\
+3 & + FCR 4ª pot.     & CMA & trk  & 4th  & frecuencia gruesa estimada \\
+4 & CMA + FCR-DD      & CMA & ---  & DD   & fase enganchada \\
+5 & FFE-DD + FCR-DD   & DD  & ---  & DD   & decisiones confiables \\
+6 & Alineación + CS   & DD  & ---  & DD   & receptor en régimen \\
+7 & BER               & DD  & ---  & DD   & estado estacionario \\
+\bottomrule
+\end{tabular}
+\caption{Etapas de la FSM del receptor.}
+\end{table}
+Cada etapa habilita un algoritmo sólo cuando la anterior le garantizó sus
+condiciones de operación. El CMA va primero por ser el único que trabaja con
+el ojo cerrado; los algoritmos dirigidos por decisiones requieren que las
+decisiones sean mayoritariamente correctas.
+\subsubsection*{Resultados}
+Corrida de ejemplo: canal de distorsión moderada, $E_b/N_0 = 16$~dB,
+$\phi_{est} = 0.7$~rad, $f_{offset} = BR/200$, jitter de $0.05$~rad.
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figuras/ej1_constelaciones.png}
+\caption{Constelación a la entrada del slicer por etapa de la FSM.}
+\label{fig:ej1_const}
+\end{figure}
+Las etapas 1 y 2 muestran anillos: el CMA ecualiza el canal pero, al ser ciego
+a la fase, no detiene la rotación de portadora. Los anillos se resuelven en la
+etapa 3, al habilitarse el PED de cuarta potencia.
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figuras/ej1_metricas.pdf}
+\caption{AGC, MSE, SNR estimada, ramas integrales del FCR y del RFD, y salida
+del NCO. Las líneas punteadas marcan las transiciones de la FSM.}
+\label{fig:ej1_metricas}
+\end{figure}
+El salto del MSE y de la SNR coincide con el inicio de la etapa 3.
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figuras/ej1_ffe.pdf}
+\caption{Evolución de coeficientes, respuesta final y respuesta en frecuencia
+del FFE (41 taps).}
+\label{fig:ej1_ffe}
+\end{figure}
+El coeficiente central converge a un valor cercano a la unidad y los
+adyacentes cancelan la ISI de postcursor, la respuesta en frecuencia es el
+espejo de la del canal. Por otro lado, se hicieron multiples pruebas para determinar la razon de lo que parece ser un piso de ruido entre $20$ y $32$ GHz. La solución se le atribuye a la cantidad de taps del FFE, con 41 taps los coeficientes de los extremos no habían caído a cero todavía. A continuación se presenta el resultado aumentando la cantidad de taps desde $41$ a $101$ (ver Figura \ref{fig:ej1_ffe_101taps}).
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\linewidth]{figuras/ej1_ffe_101taps.pdf}
+    \caption{Evolución de coeficientes, respuesta final y respuesta en frecuencia
+del FFE (101 taps).}
+    \label{fig:ej1_ffe_101taps}
+\end{figure}
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figuras/ej1_psd.pdf}
+\caption{Densidad espectral de potencia en distintos puntos de la cadena.}
+\label{fig:ej1_psd}
+\end{figure}
+Se observa el espectro conformado por el RRC hasta $\pm0.75\,BR$, el piso de
+ruido del canal y el efecto del filtro adaptado.
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figuras/ej1_ojo.png}
+\caption{Diagrama de ojo a la entrada del slicer.}
+\label{fig:ej1_ojo}
+\end{figure}
+Las aperturas en $t/T_{sym} = -1$ y $0$ corresponden a los instantes de
+decisión, separados un período de símbolo.
+\subsubsection*{Verificación}
+\begin{itemize}\itemsep2pt
+\item El RFD converge a $0.00722\,BR$ y la rama integral del FCR a
+      $-0.00222\,BR$; la suma reproduce el offset aplicado de $0.005\,BR$.
+\item El NCO crece linealmente con pendiente $2\pi f_{offset} = 0.0314$
+      rad/símbolo tras el enganche.
+\item SNR medida en el slicer: $19.12$~dB, contra
+      $E_s/N_0 = 22.02$~dB ideal. La penalidad de $2.9$~dB corresponde a la
+      amplificación de ruido del FFE sobre este canal (ver Ejercicio 2).
+\item En una corrida aparte, sobre canal impulso y sin efectos de portadora,
+      la penalidad respecto de la curva analítica se mantiene por debajo de
+      $0.1$~dB, lo que valida la calibración del ruido de la
+      ecuación~(\ref{eq:ej1_ruido}). El detalle se presenta en el Ejercicio 2.
+\end{itemize}
+\subsection*{Ejercicio 2: Curvas de BER}
+ 
+\subsubsection*{Configuración}
+ 
+Se barrió $E_b/N_0$ para cuatro perfiles de canal sin efectos de portadora,
+con todos los algoritmos del receptor activos y la FSM recorriendo sus siete
+etapas en cada punto. La ventana de BER se dimensiona automáticamente para
+acumular al menos 100 errores de bit ($N_{sym} = 100/(k\cdot\mathrm{BER})$),
+con un tope de $2.5\times10^{6}$ símbolos; el barrido se corta cuando la BER
+cae por debajo del piso confiable. El tiempo total de las cuatro curvas fue de
+2,3~min.
+ 
+Al no haber offset de portadora, el integrador del RFD no tiene nada que
+estimar y sólo acumula ruido. Se acotó por lo tanto su recorrido a $BR/500$,
+por debajo del rango de enganche del DPLL.
+ 
+\subsubsection*{Selección de los canales}
+ 
+Los filtros se eligieron espaciados en símbolo, de modo que la severidad quede
+determinada por el módulo de las raíces de $H(z)$: cuanto más próximas a la
+circunferencia unitaria, más profundo el nulo espectral y mayor la ganancia
+que el ecualizador debe aplicar para invertirlo.
+ 
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{llccc}
+\toprule
+Perfil & $H(z)$ & $|z_i|$ & Tilt & Penalidad \\
+\midrule
+Impulso   & $1$ & --- & 0 dB & $\le 0.06$ dB \\
+Leve      & $1 + 0.15z^{-1}$ & $0.15$ & 2.6 dB & $0.2$--$0.3$ dB \\
+Moderada  & $1 + 0.45z^{-1} - 0.20z^{-2}$ & $0.73;\,0.28$ & 11.7 dB & $2.6$--$2.9$ dB \\
+Agresiva  & $1 + 0.80z^{-1} + 0.35z^{-2} - 0.20z^{-3}$ & $0.82;\,0.82;\,0.30$ & 16.4 dB & $6.2$--$8.4$ dB \\
+\bottomrule
+\end{tabular}
+\caption{Perfiles utilizados. El tilt es la excursión pico a pico de
+$|H(f)|$; la penalidad, la degradación medida de la SNR en el slicer.}
+\label{tab:ej2_canales}
+\end{table}
+ 
+\subsubsection*{Calibración}
+ 
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{cccc}
+\toprule
+$E_b/N_0$ [dB] & SNR slicer [dB] & $E_s/N_0$ ideal [dB] & Penalidad [dB] \\
+\midrule
+ 8 & 14.01 & 14.02 & $+0.01$ \\
+ 9 & 14.98 & 15.02 & $+0.04$ \\
+10 & 15.96 & 16.02 & $+0.06$ \\
+11 & 16.97 & 17.02 & $+0.05$ \\
+12 & 17.96 & 18.02 & $+0.06$ \\
+13 & 18.96 & 19.02 & $+0.06$ \\
+14 & 19.96 & 20.02 & $+0.06$ \\
+\bottomrule
+\end{tabular}
+\caption{Canal sin distorsión: SNR medida a la entrada del slicer contra
+$E_s/N_0 = E_b/N_0 + 10\log_{10}k$.}
+\label{tab:ej2_calib}
+\end{table}
+ 
+Medida sobre la curva de BER, la penalidad equivalente es el corrimiento
+horizontal respecto de la analítica. Se cumple el requerimiento de penalidad menor a $0,1\text{[dB]}$ para el caso de un canal sin distorsión.
+ 
+Alcanzar esta calibración requirió cuatro decisiones, dos de ellas no
+evidentes:
+ 
+\begin{itemize}\itemsep2pt
+\item \textbf{Longitud del FFE}: 41 taps a $T/2$. Con 31 la penalidad
+      ascendía a $0.4$~dB por truncamiento de la respuesta.
+\item \textbf{Paso del LMS}: $\mu_{DD} = 3\times10^{-5}$. Con $5\times10^{-4}$ el
+      ruido de gradiente agregaba $0,1$dB.
+\item \textbf{Receptor MMSE insesgado}: el DD-LMS converge a la solución de
+      Wiener, que encoge la constelación por $\alpha = \gamma/(1+\gamma)$ \cite{cioffi1995mmse}. Como el decisor usa una
+      grilla fija, ese encogimiento es una pérdida de distancia al
+      umbral. Se estima $\alpha$ de forma ciega contra las propias decisiones
+      y se lo divide antes del slicer: recupera entre $0.04$ y $0.08$~dB.
+\item \textbf{Ganancia del AGC}: $\mu_{AGC} = 10^{-4}$. Con $10^{-3}$ el
+      jitter de ganancia residual es de $\sim 2\%$
+      ($\sigma_g \approx \sqrt{\mu/2}$), y al tratarse de un deterioro
+      \emph{multiplicativo} su peso relativo al ruido térmico crece con la
+      SNR: la penalidad pasaba de $0.10$~dB a $12$~dB hasta $0.17$~dB a
+      $16$~dB. Reducir la ganancia la deja plana en $\sim 0.06$~dB.
+\end{itemize}
+ 
+Este último punto es el que explica por qué, antes de corregirlo, la
+penalidad crecía con $E_b/N_0$ en un canal sin distorsión, donde no hay
+amplificación de ruido que pueda justificarlo.
+ 
+\subsubsection*{Resultados}
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.8\textwidth]{figuras/ej2_ber.png}
+\caption{BER vs $E_b/N_0$ para los cuatro canales y curva analítica de
+16-QAM en AWGN.}
+\label{fig:ej2_ber}
+\end{figure}
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.9\textwidth]{figuras/ej2_respuestas.png}
+\caption{Respuesta del canal y respuesta final del ecualizador en cada caso.}
+\label{fig:ej2_respuestas}
+\end{figure}
+Se agrega además una Figura con todas las respuestas de los canales y la posición de las raíces de $H(z)$, esto es para poder comprender mejor como se comportan los diferentes perfiles de distorsión (ver Figura \ref{fig:ej2_canales}).
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\linewidth]{figuras/ej2_canales.png}
+    \caption{Respuesta del canal con los diferentes perfiles de distorsión y gráfico de la posición de las raíces de $H(z)$}
+    \label{fig:ej2_canales}
+\end{figure}
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.8\textwidth]{figuras/ej2_penalidad.png}
+\caption{Penalidad de SNR en el slicer respecto de $E_s/N_0$ ideal.}
+\label{fig:ej2_penalidad}
+\end{figure}
+ 
+La curva del canal sin distorsión se superpone con la analítica en todo el
+rango. Los nulos espectrales caen donde lo predicen las raíces (el argumento de la raíz fija la frecuencia y su módulo la profundidad): en
+$f = \pm BR/2$ para los canales leve y moderado, y en $f \approx \pm 0.37\,BR$ para el agresivo, cuyo par de
+raíces complejas conjugadas fija esa frecuencia.
+   
+\subsubsection*{Limitación de las estructuras lineales de ecualización}
+ 
+La principal limitación del FFE es la amplificación de ruido. Por ser
+una estructura lineal que opera únicamente sobre la señal recibida, la única
+forma que tiene de compensar la atenuación que introduce el canal en una
+banda es aplicarle ganancia, y esa ganancia se la aplica por igual al ruido
+que hay en esa banda. El FFE no elimina la ISI: la intercambia por
+ruido. No existe ajuste de coeficientes que evite ese intercambio; sólo
+existe el punto de compromiso que lo minimiza.
+ 
+En lo que sigue se desarrolla ese compromiso, se lo cuantifica y se lo
+contrasta con las curvas medidas.
+ 
+\paragraph{Planteo}
+ 
+Sean $H(f)$ la respuesta en frecuencia del canal y $W(f)$ la del ecualizador,
+es decir la transformada del vector de coeficientes que adapta el LMS, que es
+lo graficado en la Figura~\ref{fig:ej2_respuestas}.
+ 
+El LMS resuelve el compromiso en el sentido de mínimo error cuadrático:
+%
+\begin{equation}
+W_{MMSE}(f) = \frac{H^{*}(f)}{|H(f)|^{2} + N_0/E_s}.
+\label{eq:ej2_mmse}
+\end{equation}
+%
+El término $N_0/E_s$ del denominador acota la ganancia en los nulos: a baja
+SNR domina, y el ecualizador renuncia a invertir el canal por completo,
+aceptando ISI residual con tal de amplificar menos ruido.
+ 
+Al aumentar la SNR ese término se desvanece y la solución tiende a la de
+forzado a cero, $W(f) \to 1/H(f)$, que cancela la ISI por completo a costa de
+multiplicar el ruido por $1/|H(f)|^{2}$ en potencia. 
+ 
+\paragraph{Evidencia}
+ 
+La Figura~\ref{fig:ej2_respuestas} muestra el mecanismo de forma directa: la
+respuesta del ecualizador es la imagen especular de la del canal. En el caso
+moderado el canal cae a $-10.1$~dB en $f = \pm BR/2$ y el FFE responde con
+$+9$~dB en esa misma frecuencia; en el agresivo, $-13.1$~dB de hundimiento
+contra $+12$~dB de pico.
+ 
+La Figura~\ref{fig:ej2_penalidad} representa que la
+penalidad no es constante, crece con $E_b/N_0$, pasando de $6.2$ a
+$8.4$~dB en el canal agresivo, mientras que en el canal sin distorsión se
+mantiene plana en $0.06$~dB. Las curvas de BER de los canales distorsionados
+no son la analítica desplazada sino curvas de menor pendiente, y por
+eso su separación se ensancha hacia BER bajas.
+ 
+Esto es precisamente lo descrito por la
+ecuación~(\ref{eq:ej2_mmse}): a baja SNR el compromiso favorece al
+ecualizador, y a medida que $E_b/N_0$ crece la solución migra hacia el
+Zero-Forcing. En la Figura \ref{fig:peaking} se muestra la respuesta frente a un canal
+agresivo para una SNR 
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=1\linewidth]{figuras/ej2_peaking.pdf}
+    \caption{Peaking del FFE en el canal agresivo para un caso con y sin ruido. La curva punteada es la inversa exacta del canal, $1/|H(f)|$, que es lo que exigiría un Zero-Forcing.}
+    \label{fig:peaking}
+\end{figure}
+\subsection*{Ejercicio 3:}
+\subsubsection*{Consigna 1: Sanidad}
+Se analizó el seguimiento de un jitter sinusoidal de amplitud $A=0.1$ rad y frecuencia $f_{\text{jitter}}=9.6$ MHz mediante el FFE y el DPLL. Como métrica se utilizó el error de fase residual
+\begin{equation}
+e_{\text{res}}[n]=\angle\left(y_r[n]\hat a^*[n]\right).
+\end{equation}
+Sin compensación, el RMS teórico del jitter es $A/\sqrt{2}=0.0707$ rad.
+Primero se deshabilitó el DPLL manteniendo la adaptación normal del FFE. Se obtuvo un RMS de $0.06641$ rad, SNR de $16.242$ dB y penalidad de $1.019$ dB. La cercanía entre el RMS medido y el valor teórico sin compensación muestra que el FFE normal prácticamente no sigue el jitter.
+Para analizar el seguimiento con una adaptación más rápida, se utilizaron inicialmente $20000$ símbolos CMA y $100000$ símbolos DD. Luego se evaluaron dos configuraciones: FFE adaptativo con $\mu_{dd}=2\times10^{-3}$ y DPLL apagado, o FFE congelado y DPLL habilitado. Se descartaron $30000$ símbolos de transitorio y se utilizaron $40000$ para las métricas.
+\begin{figure}[htbp]
+\centering
+\begin{minipage}{0.49\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]
+    {figs/Error_de_fase_residual___RMS_0_06641_rad___SNR_16_242_dB__n_60000_.png}\\[2pt]
+    \small (a) FFE normal, DPLL OFF.
+\end{minipage}
+\hfill
+\begin{minipage}{0.49\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]
+    {figs/Error_de_fase_residual___RMS_0_03253_rad___SNR_16_740_dB__n_150000_.png}\\[2pt]
+    \small (b) FFE rápido, DPLL OFF.
+\end{minipage}
+
+\vspace{0.4cm}
+
+\begin{minipage}{0.49\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]
+    {figs/Error_de_fase_residual___RMS_0_00809_rad___SNR_17_189_dB__n_150000_.png}\\[2pt]
+    \small (c) FFE congelado, DPLL ON.
+\end{minipage}
+\hfill
+\begin{minipage}{0.49\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]
+    {figs/Comparacion_del_error_de_fase_residual.png}\\[2pt]
+    \small (d) Comparación del error residual.
+\end{minipage}
+\caption{Seguimiento del jitter de fase de $9.6$ MHz mediante el FFE y el DPLL.}
+\label{fig:sanidad}
+\end{figure}
+Con el FFE rápido se obtuvo
+\[
+\text{RMS}=0.03253~\text{rad},\qquad
+\text{SNR}=16.740~\text{dB},\qquad
+\Delta\text{SNR}=0.346~\text{dB}.
+\]
+El FFE logra seguir parcialmente el jitter, aunque permanece una componente sinusoidal en el error residual.
+Con el FFE congelado y el DPLL habilitado se obtuvo
+\[
+\text{RMS}=0.00809~\text{rad},\qquad
+\text{SNR}=17.189~\text{dB},\qquad
+\Delta\text{SNR}=0.002~\text{dB}.
+\]
+El DPLL prácticamente elimina la degradación, ya que el NCO sigue la fase de entrada y reduce
+\[
+\epsilon[n]=\phi_{\text{jitter}}[n]-\theta[n].
+\]
+El RMS obtenido con el DPLL es aproximadamente una cuarta parte el del FFE rápido y su potencia de error de fase residual es aproximadamente menos de una decima parte. Por lo tanto, aunque el FFE puede absorber parcialmente variaciones lentas de fase, el DPLL presenta un seguimiento considerablemente mejor.
+\subsubsection*{Consigna 2: PED de cuarta potencia}
+Se barrieron $k_p=\{5\times10^{-3},10^{-2},2\times10^{-2},5\times10^{-2}\}$ y 12 frecuencias de jitter entre $3.2$ MHz y aproximadamente $1$ GHz. El FFE converge durante $60000$ símbolos CMA y $50000$ DD y luego se congela. Se utilizan $30000$ símbolos para el settling del FCR y $150000$ para las métricas. Para cada $k_p$ se utiliza una referencia sin jitter con la misma configuración.
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.78\linewidth]
+    {figs/PED_de_4ta_potencia__penalidad_de_SNR_vs_frecuencia_de_jitter.png}
+    \caption{PED de cuarta potencia: penalidad de SNR frente a la frecuencia de jitter.}
+    \label{fig:4th}
+\end{figure}
+La Figura~\ref{fig:4th} muestra una región de seguimiento a bajas frecuencias, una transición y una saturación cercana a $1$ dB a altas frecuencias. Al aumentar $k_p$, la transición se desplaza hacia frecuencias mayores, por lo que aumenta el ancho de banda de seguimiento. Sin embargo, un $k_p$ mayor también incrementa el ruido transferido por el PED hacia el NCO.
+\subsubsection*{Consigna 3: PED dirigido por decisiones}
+Se repitió el mismo barrido utilizando el detector DD.
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.78\linewidth]
+    {figs/PED_dirigido_por_decisiones__DD___penalidad_de_SNR_vs_frecuencia_de_jitter.png}
+    \caption{PED DD: penalidad de SNR frente a la frecuencia de jitter.}
+    \label{fig:dd}
+\end{figure}
+El comportamiento es similar al detector de cuarta potencia: a bajas frecuencias el jitter es seguido correctamente y a altas frecuencias la penalidad converge hacia aproximadamente $1$ dB. El aumento de $k_p$ vuelve a desplazar la transición hacia frecuencias mayores.
+\subsubsection*{Comparación de los PED}
+Para comparar ambos detectores se utilizaron los mismos valores de $k_p$ y frecuencia de jitter.
+\begin{figure}[htbp]
+\centering
+\begin{minipage}{0.49\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]
+    {figs/Comparacion_de_PED_para_kp_5e_03.png}\\[2pt]
+    \small (a) $k_p=5\times10^{-3}$.
+\end{minipage}
+\hfill
+\begin{minipage}{0.49\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]
+    {figs/Comparacion_de_PED_para_kp_1e_02.png}\\[2pt]
+    \small (b) $k_p=10^{-2}$.
+\end{minipage}
+
+\vspace{0.4cm}
+
+\begin{minipage}{0.49\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]
+    {figs/Comparacion_de_PED_para_kp_2e_02.png}\\[2pt]
+    \small (c) $k_p=2\times10^{-2}$.
+\end{minipage}
+\hfill
+\begin{minipage}{0.49\linewidth}
+    \centering
+    \includegraphics[width=\linewidth]
+    {figs/Comparacion_de_PED_para_kp_5e_02.png}\\[2pt]
+    \small (d) $k_p=5\times10^{-2}$.
+\end{minipage}
+\caption{Comparación de penalidad de SNR entre el PED de 4ª potencia y el PED DD, para los cuatro valores de $k_p$.}
+\label{fig:comparacion_ped}
+\end{figure}
+La Figura~\ref{fig:comparacion_ped} muestra que el PED DD mantiene una penalidad menor hasta frecuencias más altas. Por ejemplo, para $k_p=2\times10^{-2}$ y $f_{\text{jitter}}\approx44$ MHz se obtienen $0.56$ dB para cuarta potencia y $0.22$ dB para DD; para $k_p=5\times10^{-2}$ y $f_{\text{jitter}}\approx125$ MHz se obtienen $0.56$ dB y $0.26$ dB, respectivamente.
+La diferencia se debe a que el PED DD obtiene información de fase prácticamente en cada símbolo,
+\begin{equation}
+e_{\text{DD}}=
+\frac{\operatorname{Im}\{y_r\hat a^*\}}{|\hat a|^2}
+\approx\epsilon,
+\end{equation}
+mientras que el detector de cuarta potencia utiliza solamente los símbolos habilitados por su criterio de selección. Por este motivo, el DD presenta un mayor ancho de banda efectivo para el mismo $k_p$.
+A bajas frecuencias ambos detectores siguen correctamente el jitter y a altas frecuencias ninguno logra seguirlo, por lo que las curvas convergen. La principal diferencia se encuentra en la región de transición.
+Por último, el FFE normal prácticamente no sigue el jitter de $9.6$ MHz. Aumentar su velocidad de adaptación permite reducir parcialmente el error, pero el DPLL presenta un seguimiento considerablemente mejor, reduciendo el RMS residual de $0.03253$ rad a $0.00809$ rad respecto del FFE rápido.
+Los barridos muestran que aumentar $k_p$ extiende el rango de frecuencias que puede seguir el DPLL, mientras que a frecuencias suficientemente altas la penalidad converge hacia $1$ dB. Finalmente, el PED DD presenta mayor ancho de banda efectivo que el detector de cuarta potencia para un mismo $k_p$, principalmente porque utiliza información de fase en una mayor cantidad de símbolos.
+\subsubsection*{Ejercicio 4: Compensación gruesa del offset de portadora (CCR)}
+El objetivo de este ejercicio es evaluar el rango de adquisición del bloque de
+recuperación gruesa de frecuencia (RFD, \emph{Rotational Frequency Detector})
+del receptor, implementado con un detector bang-bang basado en la ambigüedad
+de fase de los puntos ``diagonales'' de la constelación 16-QAM
+($|I|=|Q|$, que se comportan como una QPSK rotada).
+La configuración común a todas las simulaciones de este ejercicio es:
+\begin{itemize}
+    \item Canal con distorsión moderada (el mismo del Ejercicio 2).
+    \item $E_b/N_0$ calibrado para obtener $\mathrm{BER}\approx 10^{-3}$ sin
+          efectos de portadora (mismo punto de la curva del Ejercicio 2).
+    \item Solo offset de portadora activo: $\varphi(t) = 2\pi\, t\, f_{off}$
+          (sin error de fase estático ni jitter senoidal).
+    \item Secuencia completa de la FSM RX (7 etapas: FFE-CMA
+          $\rightarrow$ RFD-acq $\rightarrow$ RFD-trk+FCR(4\textsuperscript{a}
+          potencia) $\rightarrow$ FCR-DD $\rightarrow$ FFE-DD+FCR-DD
+          $\rightarrow$ alineación+CS $\rightarrow$ estimación de BER), de
+          forma de enganchar el offset y ecualizar el canal en el mismo lazo.
+\end{itemize}
+\subsubsection*{Consigna 1 -- Barrido del offset y evolución de las ramas integrales}
+Se barrió el offset de portadora normalizado $f_{off}/BR$ en el rango
+$\left[-\dfrac{BR}{12},\ \dfrac{BR}{12}\right]$, dentro del límite teórico de
+captura del RFD (ver Sección~\ref{sec:limite}). Para cada valor se registró
+la evolución completa de:
+\begin{itemize}
+    \item la rama integral del RFD, $f_{RFD}/2\pi$ (estimación de frecuencia,
+          normalizada a $BR$),
+    \item la rama integral del DPLL fino (FCR), $\mathrm{int}_{FCR}$ [rad].
+\end{itemize}
+La Figura~\ref{fig:ccr_sweep} muestra ambas trazas superpuestas para los 7
+casos del barrido, con bandas de fondo indicando qué etapa de la FSM está
+activa en cada tramo de la simulación.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{RFD1.png}
+    \caption{Evolución de las ramas integrales del RFD y del FCR fino para el
+    barrido de offset de portadora. Las líneas punteadas horizontales indican
+    el valor esperado de cada offset; las bandas de fondo señalan las etapas
+    de la FSM RX.}
+    \label{fig:ccr_sweep}
+\end{figure}
+\paragraph{Resultados numéricos}
+\begin{table}[H]
+    \centering
+    \caption{Offset estimado por el RFD al finalizar la simulación y BER
+    medida, para cada punto del barrido.}
+    \label{tab:ccr_sweep}
+    \begin{tabular}{ccc}
+        \toprule
+        $f_{off}/BR$ & $f_{RFD}^{final}/BR$ & BER \\
+        \midrule
+        $-0.0833$ & -0.0847 & 1.21e-03 \\
+        $-0.0555$ & -0.0539 & 1.03e-03 \\
+        $-0.0277$ & -0.0291 & 8.63e-04 \\
+        $0$      & 0.0012 & 8.93e-04 \\
+        $0.0277$  & 0.0288 & 8.85e-04 \\
+        $0.0555$  & 0.0565 & 1.00e-03 \\
+        $0.0833$  & 0.0842 & 1.19e-03 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+Como se observa en la Figura~\ref{fig:ccr_sweep} y en la
+Tabla~\ref{tab:ccr_sweep}, los 7 casos del barrido enganchan
+correctamente: la rama integral del RFD converge en la etapa 2
+(\texttt{FFE-CMA+RFD}, adquisición) al valor esperado de cada offset, y se
+mantiene estable durante el resto de la simulación (etapa 3 en adelante,
+\emph{tracking}). El residuo que el RFD no llega a cancelar de forma exacta
+--- consecuencia de ser un detector de paso fijo (bang-bang) y no un lazo
+proporcional --- queda absorbido por la rama integral del DPLL fino a partir
+de la etapa 3, cuando este se activa.
+\subsubsection*{Consigna 2 -- Límite fundamental del RFD}
+\label{sec:limite}
+\paragraph{Demostración matemática}
+El detector de frecuencia grueso opera sobre los símbolos que caen en el
+``anillo diagonal'' de la constelación 16-QAM ($|I|=|Q|$), que se comportan
+como una QPSK rotada $45^\circ$. Definiendo el ángulo plegado de la muestra
+$n$-ésima como
+\begin{equation}
+    \theta[n] \;=\; \operatorname{mod}\!\big(\angle y_{rot}[n],\ \tfrac{\pi}{2}\big) - \tfrac{\pi}{4}
+    \ \in\ \left(-\tfrac{\pi}{4},\ \tfrac{\pi}{4}\right],
+\end{equation}
+el detector evalúa el incremento de fase entre símbolos consecutivos,
+$\Delta\theta[n] = \theta[n] - \theta[n-1]$, y decide que hubo un
+``\emph{wrap}'' (indicio de una frecuencia residual distinta de cero) cuando
+\begin{equation}
+    |\Delta\theta[n]| \;>\; \frac{\pi}{4}.
+\end{equation}
+Esta condición es equivalente a la del
+detector clásico de 4\textsuperscript{a} potencia
+$e_f = \angle\!\big((y_{rot}[n]\, y_{rot}^*[n-1])^4\big)/4$: en ambos casos el
+incremento de fase por símbolo solo puede recuperarse sin ambigüedad si
+pertenece al intervalo $(-\pi/4,\ \pi/4]$, ya que es la salida de una función
+$\angle(\cdot)$ (valor principal en $(-\pi,\pi]$) dividida por 4.
+Por otro lado, el incremento de fase por símbolo debido a un offset de
+portadora $f_{off}$ es
+\begin{equation}
+    \Delta\varphi \;=\; 2\pi\, f_{off}\, T_{sym} \;=\; 2\pi\, \frac{f_{off}}{BR}.
+\end{equation}
+Combinando ambas expresiones, el rango de captura sin ambigüedad del RFD
+queda acotado por
+\begin{equation}
+    \left|2\pi\,\frac{f_{off}}{BR}\right| \;<\; \frac{\pi}{4}
+    \quad\Longrightarrow\quad
+    \boxed{\ |f_{off}| \;<\; \dfrac{BR}{8}\ }.
+\end{equation}
+Fuera de este rango, el detector \emph{aliasea}: en lugar de converger al
+valor real $f_{off}$, converge a
+\begin{equation}
+    \hat f_{off} \;=\; f_{off} \;-\; k\,\dfrac{BR}{4}, \qquad k\in\mathbb{Z},
+    \label{eq:alias}
+\end{equation}
+es decir, engancha en un punto desplazado en múltiplos de $BR/4$ respecto del
+valor verdadero, con $k$ el entero que minimiza $|\hat f_{off}|$.
+\paragraph{Validación por simulación}
+Para validar la Ecuación~\eqref{eq:alias} se simularon 4 offsets: uno bien
+adentro del rango de captura ($BR/16$), dos apenas por debajo y por encima de
+$BR/8$, y uno claramente fuera de rango ($BR/6$). La
+Figura~\ref{fig:ccr_limite} muestra la evolución de $f_{RFD}/2\pi$ en cada
+caso.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{RFD2.png}
+    \caption{Evolución de $f_{RFD}/2\pi$ para offsets dentro y fuera del
+    rango teórico de captura $|f_{off}|<BR/8$. Las líneas punteadas indican
+    el valor real de cada offset.}
+    \label{fig:ccr_limite}
+\end{figure}
+\begin{table}[H]
+    \centering
+    \caption{Offset estimado y BER final para los casos dentro y fuera del
+    límite de captura.}
+    \label{tab:ccr_limite}
+    \begin{tabular}{cccc}
+        \toprule
+        $f_{off}/BR$ & $f_{RFD}^{final}/BR$ (medido) & BER \\
+        \midrule
+        $1/16 \approx 0.0625$   & 0.0610  & 1.11e-03 \\
+        $\approx 1/8^{-}$       & 0.1240  & 1.57e-03 \\
+        $\approx 1/8^{+}$       & -0.1226 & 0.5 \\
+        $1/6 \approx 0.1667$    & -0.0843 & 0.5 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+Los resultados confirman la Ecuación~\eqref{eq:alias}: mientras el offset se
+mantiene por debajo de $BR/8$, la rama integral del RFD converge
+correctamente al valor real (con un transitorio de adquisición cada vez más
+largo a medida que $f_{off}$ se acerca al límite). En cuanto el offset supera
+$BR/8$, el RFD converge a un valor de signo opuesto y magnitud consistente
+con $f_{off}-BR/4$ --- no diverge ni se satura en $f_{lim}$, sino que engancha
+de forma estable pero incorrecta. Este comportamiento evidencia la limitación
+fundamental de un detector de frecuencia basado en potencia a la cuarta (o en
+su versión bang-bang equivalente): la ambigüedad de fase módulo $\pi/2$
+introducida por la constelación 16-QAM restringe el rango de adquisición sin
+ambigüedad a $\pm BR/8$, independientemente de las ganancias del lazo.
+\subsubsection*{Conclusiones}
+El RFD implementado logra enganchar correctamente offsets de portadora en
+todo el rango $[-BR/12,\ BR/12]$ solicitado, con una dinámica de convergencia
+gobernada por las ganancias \texttt{mu\_acq}/\texttt{mu\_trk} de cada etapa.
+El límite fundamental del algoritmo, derivado analíticamente en
+$\pm BR/8$, fue validado experimentalmente: para offsets que superan dicho
+límite el detector no falla de manera aleatoria, sino que engancha de forma
+predecible en $f_{off}-k\,BR/4$, producto de la ambigüedad de fase inherente
+a la operación de $4^{\text{a}}$ potencia (o su equivalente bang-bang) sobre
+una constelación con periodicidad $\pi/2$.
