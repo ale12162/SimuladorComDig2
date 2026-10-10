@@ -7,8 +7,7 @@
 \providecommand{\BIBentrySTDinterwordspacing}{\spaceskip=0pt\relax}
 \providecommand{\BIBentryALTinterwordstretchfactor}{4}
 \providecommand{\BIBentryALTinterwordspacing}{\spaceskip=\fontdimen2\font plus
-\BIBentryALTinterwordstretchfactor\fontdimen3\font minus
-  \fontdimen4\font\relax}
+\BIBentryALTinterwordstretchfactor\fontdimen3\font minus \fontdimen4\font\relax}
 \providecommand{\BIBforeignlanguage}[2]{{%
 \expandafter\ifx\csname l@#1\endcsname\relax
 \typeout{** WARNING: IEEEtran.bst: No hyphenation pattern has been}%
@@ -22,14 +21,9 @@
 \BIBdecl
 
 \bibitem{cioffi1995mmse}
-J.~M. Cioffi, G.~P. Dudevoir, M.~V. Eyuboglu, and G.~D. Forney, ``{MMSE}
-  decision-feedback equalizers and coding---part {I}: Equalization results,''
-  \emph{IEEE Transactions on Communications}, vol.~43, no.~10, pp. 2582--2594,
-  Oct. 1995.
+J.~M. Cioffi, G.~P. Dudevoir, M.~V. Eyuboglu, and G.~D. Forney, ``{MMSE} decision-feedback equalizers and coding---part {I}: Equalization results,'' \emph{IEEE Transactions on Communications}, vol.~43, no.~10, pp. 2582--2594, Oct. 1995.
 
 \bibitem{messerschmitt1979rfd}
-D.~G. Messerschmitt, ``Frequency detectors for {PLL} acquisition in timing and
-  carrier recovery,'' \emph{IEEE Transactions on Communications}, vol.~27,
-  no.~9, pp. 1288--1295, Sep. 1979.
+D.~G. Messerschmitt, ``Frequency detectors for {PLL} acquisition in timing and carrier recovery,'' \emph{IEEE Transactions on Communications}, vol.~27, no.~9, pp. 1288--1295, Sep. 1979.
 
 \end{thebibliography}

@@ -633,6 +633,431 @@ operación es cuadratura, que cuesta $3$~dB adicionales de pérdida a cambio
 de una respuesta lineal en potencia.
 
 %==========================================================================
+\subsection*{Ejercicio 7: Modelo de un amplificador driver}
+%==========================================================================
+% Modulo: lib/Driver_lib.m
+% Figuras y datos: tests/testbench_Driver.m
+
+\subsubsection*{Implementación}
+
+El driver se modeló en tres etapas en cascada: un filtro lineal de segundo
+orden, ruido aditivo filtrado por la misma transferencia y una no
+linealidad sin memoria.
+
+\paragraph{Respuesta lineal.}
+Se usó la transferencia de segundo orden de la consigna, con $\omega_n^2$
+en el numerador para que la ganancia en continua sea la especificada,
+%
+\begin{equation}
+G(s) = G_{DC}\,\frac{\omega_n^2}{s^2 + 2\zeta\omega_n s + \omega_n^2},
+\qquad G_{DC} = 10^{G_{dB}/20}.
+\label{eq:ej7_G}
+\end{equation}
+%
+Para $\zeta < 1/\sqrt{2}$ la respuesta presenta un pico cerca de
+$\omega_n$, que es el que se usa para pre-enfatizar las frecuencias altas.
+El filtro se discretizó con la transformación bilineal
+$s = c\,(z-1)/(z+1)$ con pre-warping en $f_n$,
+$c = \omega_n/\tan(\omega_n/2f_s)$. Como $f_s/f_n = 8$, sin pre-warping la
+compresión de frecuencias de la bilineal correría el pico hacia abajo.
+
+\paragraph{Ruido.}
+Se genera ruido blanco gaussiano de desvío $\sigma_{in}$ a la entrada del
+filtro. Si $h[n]$ es la respuesta al impulso del filtro discreto, la
+varianza a la salida es $\sigma_{in}^2\sum_n h[n]^2$, de modo que para
+obtener una tensión RMS $V_{rms}$ a la salida
+%
+\begin{equation}
+\sigma_{in} = \frac{V_{rms}}{\sqrt{\sum_n h[n]^2}}.
+\end{equation}
+
+\paragraph{No linealidad.}
+A la salida lineal (señal más ruido) se le aplica el modelo de Rapp,
+%
+\begin{equation}
+V_{out}(t) = \frac{V_{DRV-lineal}(t)}
+{\left(1 + \left|\dfrac{V_{DRV-lineal}(t)}{V_{sat}}\right|^{2p}\right)^{1/2p}},
+\end{equation}
+%
+que es lineal para $|V| \ll V_{sat}$ y tiende a $\pm V_{sat}$ para señales
+grandes; $p$ controla qué tan abrupta es la transición. El módulo
+\texttt{Driver\_lib} expone los controles \texttt{G\_dB},
+\texttt{V\_rms\_noise}, \texttt{enable\_nl}, \texttt{p} y \texttt{V\_sat}
+pedidos, además de $f_n$ y $\zeta$.
+
+\subsubsection*{Sintonía del driver}
+
+La respuesta electroóptica del MZM ($h_{MZM}$) atenúa $4.89$~dB en la
+frecuencia de Nyquist de la señal ($f_{baud}/2 = 120$~GHz). Un primer
+criterio fue buscar que la \emph{magnitud} de la cascada driver + MZM
+resultara lo más plana posible hasta Nyquist. Ese criterio lleva el pico a
+Nyquist: con $f_n = 120$~GHz y $\zeta = 0.3$ la desviación máxima es de
+$1.0$~dB, pero la apertura del ojo a la salida del MZM (definida más
+adelante, con el driver lineal y sin ruido) es de sólo $13.3$~\%.
+
+El problema es la fase. Un sistema de segundo orden pasa por $-90^\circ$
+en $f_n$, y la variación de fase se concentra alrededor del pico. Si el pico
+cae dentro de la banda, distorsiona el retardo de grupo justamente donde
+está la energía de la señal, y esa distorsión de fase genera ISI aunque la
+magnitud esté compensada. Por eso se barrieron $f_n$ y $\zeta$ con el
+criterio que importa, la apertura del ojo a la salida del MZM, y se
+adoptó
+%
+\begin{equation}
+f_n = 160~\text{GHz}, \qquad \zeta = 0.25.
+\end{equation}
+%
+Con el pico por encima de la banda, el driver sigue aportando $+4.39$~dB
+respecto de continua en Nyquist y la cascada queda en $-0.50$~dB, pero la
+fase del driver en Nyquist es de $-36^\circ$ en lugar de $-90^\circ$. La
+magnitud de la cascada es algo menos plana (desviación máxima de
+$1.6$~dB, en $\approx 60$~GHz), y aun así la apertura del ojo sube a
+$54.2$~\%. Los demás parámetros son los de la consigna:
+$G_{dB} = 15$~dB, $V_{rms} = 10$~mV, $p = 2$ y $V_{sat} = 3$~V. El ruido
+medido a la salida fue de $10.01$~mV RMS.
+
+\paragraph{b) Función de transferencia.}
+La Figura~\ref{fig:ej7_G} muestra la transferencia del driver, la del MZM
+(desplazada en $G_{DC}$ para compararlas) y la de la cascada. La cascada
+se mantiene cerca de la ganancia de continua hasta $\approx 150$~GHz, lo
+que cubre también el exceso de banda del coseno realzado ($\beta = 0.2$,
+hasta $144$~GHz). La fase del driver pasa por $-90^\circ$ en
+$f_n = 160$~GHz, fuera de la banda de la señal.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{figuras/ej7_transferencia.png}
+\caption{Magnitud y fase de la transferencia del driver, junto con la
+respuesta del MZM y la de la cascada.}
+\label{fig:ej7_G}
+\end{figure}
+
+\subsubsection*{Respuesta a una señal PAM4}
+
+Se inyectó la misma señal PAM4 del Ejercicio~5 ($240$~Gbaud, coseno
+realzado con roll-off $0.2$, $f_s = 960$~GHz) y, con el mismo criterio, el
+$V_{pp}$ de entrada se tomó sobre la forma de onda completa. Con ese
+criterio los niveles de símbolo quedan en $\pm0.259\,V_{pp}$ y
+$\pm0.086\,V_{pp}$.
+
+\paragraph{c) $V_{pp}$ de salida vs. $V_{pp}$ de entrada.}
+Se midieron dos magnitudes a la salida (Tabla~\ref{tab:ej7_vpp} y
+Figura~\ref{fig:ej7_vpp}): el pico a pico de la forma de onda, que
+incluye los sobrepicos de las transiciones, y la distancia entre los
+niveles externos de símbolo en el instante de muestreo. En ambos casos se
+compara el modelo con y sin la no linealidad de Rapp.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{ccccccc}
+\toprule
+& \multicolumn{3}{c}{Pico a pico [V]} & \multicolumn{3}{c}{Niveles externos [V]} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}
+$V_{pp,in}$ [V] & Lineal & Rapp & Compr. [dB] & Lineal & Rapp & Compr. [dB] \\
+\midrule
+$0.1$ & $0.68$ & $0.69$ & $-0.18$ & $0.345$ & $0.345$ & $0.00$ \\
+$0.2$ & $1.38$ & $1.37$ & $0.06$  & $0.690$ & $0.689$ & $0.00$ \\
+$0.3$ & $2.04$ & $2.05$ & $-0.08$ & $1.034$ & $1.034$ & $0.01$ \\
+$0.4$ & $2.73$ & $2.71$ & $0.09$  & $1.379$ & $1.378$ & $0.01$ \\
+$0.5$ & $3.39$ & $3.33$ & $0.16$  & $1.724$ & $1.720$ & $0.02$ \\
+$0.6$ & $4.09$ & $3.89$ & $0.44$  & $2.069$ & $2.061$ & $0.03$ \\
+$0.7$ & $4.77$ & $4.39$ & $0.72$  & $2.414$ & $2.395$ & $0.07$ \\
+$0.8$ & $5.44$ & $4.78$ & $1.12$  & $2.758$ & $2.724$ & $0.11$ \\
+\bottomrule
+\end{tabular}
+\caption{Tensión pico a pico y distancia entre niveles externos a la
+salida del driver, con el modelo lineal y con la no linealidad de Rapp.}
+\label{tab:ej7_vpp}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.75\textwidth]{figuras/ej7_vpp.png}
+\caption{$V_{pp}$ de salida en función del $V_{pp}$ de entrada al driver.}
+\label{fig:ej7_vpp}
+\end{figure}
+
+En el modelo lineal el pico a pico de salida es unas $6.8$ veces el de
+entrada, más que los $15$~dB ($\times5.62$) de ganancia en continua,
+porque el realce de las frecuencias altas agranda los sobrepicos de las
+transiciones. Son esos sobrepicos los que primero alcanzan la zona de
+saturación: el pico a pico se comprime a partir de
+$V_{pp,in} \approx 0.5$~V y llega a $1.12$~dB en $0.8$~V, con la salida
+acercándose al límite $2V_{sat} = 6$~V. Los niveles de símbolo, en
+cambio, se comprimen apenas $0.11$~dB en el peor caso: la compresión
+afecta sobre todo a las transiciones entre símbolos y no a los instantes
+de muestreo.
+
+\paragraph{d) Diagrama de ojos y espectro a la salida del driver.}
+La Figura~\ref{fig:ej7_drv} muestra los diagramas de ojo y la densidad
+espectral a la salida del driver. Los ojos están casi cerrados (apertura
+de $-15$, $4$ y $7$~\% para $0.1$, $0.4$ y $0.8$~V). Esto es esperable y no
+es un defecto: el pre-énfasis está diseñado para compensar el filtro del
+MZM y, mientras ese filtro no está presente, la sobrecompensación de las
+frecuencias altas aparece como interferencia entre símbolos.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figuras/ej7_ojos_psd_drv.png}
+\caption{Diagramas de ojo (arriba) y densidad espectral de potencia (abajo)
+a la salida del driver para $V_{pp,in} = 0.1$, $0.4$ y $0.8$~V. Las
+líneas verticales marcan la frecuencia de Nyquist y el borde de banda del
+coseno realzado.}
+\label{fig:ej7_drv}
+\end{figure}
+
+En el espectro se ve el realce de la banda cerca de Nyquist producido por
+el pico del driver. Fuera de banda, para $0.1$ y $0.4$~V la densidad cae
+con la pendiente de la transferencia del driver: lo que se ve ahí es su
+ruido filtrado. Para $0.8$~V aparece en cambio una meseta que se extiende
+hasta $\approx 350$~GHz y que, a $300$~GHz, queda unos $20$~dB por encima
+de ese ruido. Es el rebrote espectral
+de la no linealidad: Rapp es una función impar y genera productos de
+intermodulación de tercer orden, cuyo espectro puede extenderse hasta el
+triple del ancho de banda de la señal.
+
+\paragraph{e) Diagrama de ojos a la salida del filtro del MZM.}
+Se conectó la salida del driver al filtro $h_{MZM}$
+(Figura~\ref{fig:ej7_mzm}). Como referencia se incluye el caso sin
+pre-énfasis, en el que la señal se amplifica con la misma ganancia
+$G_{DC}$ pero sin pico. La Tabla~\ref{tab:ej7_eo} cuantifica la apertura
+vertical del peor de los tres ojos en el instante de muestreo, normalizada
+a la separación entre niveles (tomando los percentiles $0.1$ y
+$99.9$~\% de cada nivel). Para separar los efectos, se agregó el caso del
+driver lineal y sin ruido.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figuras/ej7_ojos_mzm.png}
+\caption{Diagramas de ojo a la salida del filtro del MZM, sin pre-énfasis
+(arriba) y con el driver completo (abajo), para $V_{pp,in} = 0.1$, $0.4$
+y $0.8$~V.}
+\label{fig:ej7_mzm}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{ccccc}
+\toprule
+& & \multicolumn{3}{c}{Salida del filtro del MZM} \\
+\cmidrule(lr){3-5}
+$V_{pp,in}$ [V] & Salida del driver & Sin pre-énfasis & Driver lineal sin ruido & Driver completo \\
+\midrule
+$0.1$ & $-15.2$~\% & $2.5$~\% & $54.2$~\% & $34.8$~\% \\
+$0.4$ & $4.4$~\%   & $2.5$~\% & $54.2$~\% & $52.3$~\% \\
+$0.8$ & $7.4$~\%   & $2.5$~\% & $54.2$~\% & $52.8$~\% \\
+\bottomrule
+\end{tabular}
+\caption{Apertura vertical del peor de los tres ojos, normalizada a la
+separación entre niveles. Un valor negativo indica ojo cerrado.}
+\label{tab:ej7_eo}
+\end{table}
+
+El pre-énfasis cumple su función: sin él el filtro del MZM deja los ojos
+prácticamente cerrados ($2.5$~\%), y con el driver lineal la apertura sube
+a $54.2$~\%, con cuatro niveles y cruces bien definidos. La apertura no
+llega al $100$~\% porque un filtro de segundo orden no iguala exactamente
+la respuesta del MZM, ni en magnitud ni en fase, y queda ISI residual.
+Sobre ese valor actúan el ruido y la no linealidad del driver real, de
+modo distinto según la amplitud.
+
+\paragraph{f) Punto de operación del driver.}
+%
+\begin{itemize}\itemsep2pt
+\item Con $V_{pp,in} = 0.1$~V el driver es lineal, pero la separación
+      entre niveles a la salida del MZM es de sólo $\approx 0.11$~V y los
+      $10$~mV RMS de ruido reducen la apertura de $54.2$ a $34.8$~\%: el
+      sistema está limitado por ruido.
+\item Con $V_{pp,in} = 0.4$~V el ruido pasa a ser poco significativo y la
+      compresión es despreciable ($0.09$~dB en el pico a pico): la
+      apertura ($52.3$~\%) está prácticamente en el límite de $54.2$~\%
+      que impone la ISI residual.
+\item Con $V_{pp,in} = 0.8$~V los sobrepicos ya se recortan contra
+      $V_{sat}$ ($1.12$~dB de compresión) y aparece distorsión fuera de
+      banda, hasta $20$~dB por encima del piso de ruido. Como la
+      compresión afecta a las transiciones y no a los instantes de
+      muestreo, la apertura todavía no se degrada ($52.8$~\%).
+\end{itemize}
+%
+El punto de operación conveniente está entonces en
+$V_{pp,in} \approx 0.4$--$0.6$~V: suficientemente alto para que el ruido
+no limite y suficientemente bajo para que el driver no entre en el codo de
+saturación (compresión menor a $0.5$~dB). A $0.8$~V el ojo todavía es
+aceptable, pero el margen frente a la saturación es mínimo y la
+distorsión fuera de banda ya es apreciable. Ambos efectos están ligados
+al pre-énfasis: cuanto mayor es el pico del driver, mayores son los
+sobrepicos y menor es la amplitud a la que empieza la compresión.
+
+%==========================================================================
+\subsection*{Ejercicio 8: Modulador IQ}
+%==========================================================================
+% Verificacion numerica: tests/test_IQ_ex8.m
+
+\subsubsection*{Modelo}
+
+Cada acoplador $2\times2$ con factor de acoplamiento $K$ tiene la matriz de
+transferencia del Ejercicio~4,
+%
+\begin{equation}
+H_{coup} = \begin{bmatrix} \sqrt{1-K} & j\sqrt{K} \\ j\sqrt{K} & \sqrt{1-K} \end{bmatrix}
+\ \xrightarrow{K = 0.5}\
+\frac{1}{\sqrt{2}}\begin{bmatrix} 1 & j \\ j & 1 \end{bmatrix},
+\end{equation}
+%
+de modo que el puerto directo (barra) aporta un factor $1/\sqrt{2}$ y el
+cruzado $j/\sqrt{2}$. Se adoptó la convención en la que cada rama atraviesa
+una vez el puerto cruzado: la rama I es la salida cruzada del divisor y
+entra en barra al acoplador, y la rama Q a la inversa. Así ambas ramas
+acumulan el mismo factor $j/2$ de los acopladores.
+
+Cada MZM, en configuración push-pull y con $ER = \infty$, tiene la
+transferencia del Ejercicio~2. Si se lo polariza en mínima
+($V_{Bias} = V_\pi$) y se aplica la señal $x(t)$,
+%
+\begin{equation}
+E_{MZM} = j\,\frac{E}{\sqrt{IL_{MZM}}}\cos\!\left(\frac{\pi\,(V_\pi + x)}{2V_\pi}\right)
+= -j\,\frac{E}{\sqrt{IL_{MZM}}}\sin\!\left(\frac{\pi x}{2V_\pi}\right),
+\end{equation}
+%
+con las pérdidas de inserción expresadas en escala lineal de potencia.
+
+\subsubsection*{a) Puntos de polarización}
+
+Llamando $E' = E_{in}/\sqrt{IL_{IQ}\,IL_{MZM}}$ y
+$s_{i,q} = \sin(\pi x_{i,q}/2V_\pi)$, el campo en cada rama a la salida
+de su MZM es
+%
+\begin{equation}
+E_I = \frac{j}{\sqrt{2}}\,(-j)\,E'\,s_i = \frac{E'}{\sqrt{2}}\,s_i,
+\qquad
+E_Q = \frac{1}{\sqrt{2}}\,(-j)\,E'\,s_q\,e^{j\phi},
+\end{equation}
+%
+y al recombinarlas en el acoplador
+%
+\begin{equation}
+E_{out} = \frac{1}{\sqrt{2}}E_I + \frac{j}{\sqrt{2}}E_Q
+= \frac{E'}{2}\left[s_i + e^{j\phi}\,s_q\right].
+\end{equation}
+%
+Para obtener $E_{out} \propto x_i + jx_q$ hacen falta dos condiciones:
+%
+\begin{itemize}\itemsep2pt
+\item \textbf{MZMi y MZMq en mínima}, $V_{Bias,i} = V_{Bias,q} = V_\pi$.
+      Es el punto en el que el campo es una función impar de la señal y,
+      para $|x| \ll V_\pi$, $s \approx \pi x/2V_\pi$: la modulación es
+      lineal en campo, bipolar y sin portadora (Ejercicios~3 y 5).
+\item \textbf{Desfasaje de $90^\circ$ en la rama Q}, $e^{j\phi} = j$, es
+      decir $\phi = \pi/2$:
+      %
+      \begin{equation}
+      \phi = \frac{\pi}{V_\pi}V_{Bias-\phi} = \frac{\pi}{2}
+      \quad\Longrightarrow\quad
+      V_{Bias-\phi} = \frac{V_\pi}{2} = 2.5~\text{V},
+      \end{equation}
+      %
+      donde se supuso para el desfasador el mismo $V_\pi = 5$~V de los MZM.
+\end{itemize}
+%
+La elección del puerto de salida del acoplador fija el signo. Si se toma
+el otro puerto (la rama I atraviesa dos veces el cruce), la misma cuenta
+da $E_{out} \propto -s_i + e^{j\phi}s_q$ y hace falta $\phi = -\pi/2$
+($V_{Bias-\phi} = -V_\pi/2$, equivalente a $3V_\pi/2$). Con
+$\phi = +\pi/2$ en ese caso la constelación sale conjugada.
+
+\subsubsection*{b) Expresión analítica del campo de salida}
+
+Reemplazando $\phi = \pi/2$ y el campo del láser del Ejercicio~1,
+%
+\begin{equation}
+E_{out}(t) = \frac{\sqrt{P_0 + I_n(t)}}{2\sqrt{IL_{IQ}\,IL_{MZM}}}\;
+e^{\,j(2\pi FO\,t + \phi_n(t))}
+\left[\sin\!\left(\frac{\pi x_i(t)}{2V_\pi}\right)
++ j\,\sin\!\left(\frac{\pi x_q(t)}{2V_\pi}\right)\right],
+\label{eq:ej8_eout}
+\end{equation}
+%
+que para señales pequeñas se reduce a
+%
+\begin{equation}
+E_{out}(t) \approx \frac{E_{in}(t)}{\sqrt{IL_{IQ}\,IL_{MZM}}}\;
+\frac{\pi}{4V_\pi}\,\big[x_i(t) + j\,x_q(t)\big].
+\end{equation}
+%
+El modulador traslada las dos señales eléctricas a las componentes en
+fase y en cuadratura del campo óptico. El RIN y el ruido de fase del láser
+multiplican a la señal completa.
+
+\subsubsection*{c) Potencia media óptica a la salida}
+
+Como $s_i$ y $s_q$ son reales, los términos cruzados se cancelan al tomar
+el módulo al cuadrado:
+%
+\begin{equation}
+P_{out}(t) = |E_{out}(t)|^2 =
+\frac{P_0 + I_n(t)}{4\,IL_{IQ}\,IL_{MZM}}\,\big[s_i^2(t) + s_q^2(t)\big].
+\end{equation}
+%
+Con el RIN de media nula e independiente de las señales,
+%
+\begin{equation}
+\langle P_{out}\rangle = \frac{P_{in}}{4\,IL_{IQ}\,IL_{MZM}}
+\Big[\big\langle s_i^2\big\rangle + \big\langle s_q^2\big\rangle\Big].
+\label{eq:ej8_pout}
+\end{equation}
+%
+Para obtener una expresión cerrada se aproxima
+$\langle s^2\rangle \approx (\pi/2V_\pi)^2\,\sigma_x^2$. Para una señal
+PAM4 de niveles $\pm A$ y $\pm A/3$, la varianza de los símbolos es
+$5A^2/9$, y el pulso de coseno realzado la escala por $(1-\beta/4)$. Si
+ambas ramas tienen la misma estadística,
+%
+\begin{equation}
+\langle P_{out}\rangle \approx \frac{P_{in}}{2\,IL_{IQ}\,IL_{MZM}}
+\left(\frac{\pi}{2V_\pi}\right)^{2}\frac{5A^2}{9}\left(1-\frac{\beta}{4}\right).
+\end{equation}
+%
+Con los parámetros del Ejercicio~9 ($P_{in} = 20$~dBm, $V_\pi = 5$~V,
+$IL_{IQ} = 3$~dB, $IL_{MZM} = 4$~dB, $2$~V$_{pp}$ sobre la forma de onda,
+lo que en la realización simulada da $A = 0.518$~V), la expresión cerrada
+da $\langle P_{out}\rangle = 0.140$~mW ($-8.55$~dBm). La
+ecuación~(\ref{eq:ej8_pout}) evaluada sobre la forma de onda da
+$0.142$~mW ($-8.49$~dBm). La diferencia se debe a la aproximación
+$\sin(u) \approx u$, que sobreestima levemente la potencia en los niveles
+externos.
+
+\subsubsection*{d) Pérdida por modulación}
+
+De la ecuación~(\ref{eq:ej8_pout}),
+%
+\begin{equation}
+L_{mod} = \frac{P_{in}}{\langle P_{out}\rangle}
+= \frac{4\,IL_{IQ}\,IL_{MZM}}{\langle s_i^2\rangle + \langle s_q^2\rangle},
+\qquad
+L_{mod}[\text{dB}] = IL_{IQ} + IL_{MZM}
++ 10\log_{10}\!\left(\frac{4}{\langle s_i^2\rangle + \langle s_q^2\rangle}\right).
+\end{equation}
+%
+La pérdida se compone de las dos pérdidas de inserción más un término
+intrínseco a la modulación. Este término no depende de los desperfectos
+del modulador, sino de que ambos MZM están polarizados en mínima: la
+portadora se suprime y sólo sale la fracción del campo que la señal logra
+desviar del cero. Para los parámetros anteriores el término de modulación
+vale $21.49$~dB y
+%
+\begin{equation}
+L_{mod} = 3 + 4 + 21.49 = 28.49~\text{dB}.
+\end{equation}
+%
+Es el valor que verifica la simulación del Ejercicio~9 ($28.53$~dB; la
+diferencia proviene de la secuencia PAM4, que fija el sobrepico y por lo
+tanto el valor de $A$). La pérdida intrínseca disminuye al aumentar la
+excursión de la señal respecto de $V_\pi$, a costa de una mayor
+distorsión por la compresión de $\sin(\cdot)$ en los niveles externos.
+
+%==========================================================================
 \subsection*{Ejercicio 9: Implementación del modelo de un MZM-IQ ideal}
 %==========================================================================
 % Figuras y datos: tests/test_MZM_IQ_ex9.m
