@@ -1,0 +1,674 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%  TP1 - Simulación de Sistemas de Comunicaciones Digitales
+%  Presentación (Beamer / Metropolis)
+%  Guion de lo que se dice en cada slide: ../Guion_Presentacion_TP1.md
+%
+%  Figuras: copiar los .png/.pdf del informe en ../figuras/ (o en
+%  ./figuras/). Si un archivo no existe, se muestra un recuadro con su nombre.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\PassOptionsToPackage{table}{xcolor}
+\documentclass[aspectratio=169,11pt,t]{beamer}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-noshorthands,es-nodecimaldot]{babel}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{url}
+\def\UrlBreaks{\do\_\do\/}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,calc}
+
+\usetheme[progressbar=frametitle,numbering=fraction]{metropolis}
+
+%% ---------------- Paleta ----------------
+\definecolor{navy}{HTML}{14213D}
+\definecolor{ink}{HTML}{1E2A44}
+\definecolor{body}{HTML}{3E4A5E}
+\definecolor{paper}{HTML}{F7F6F2}
+\definecolor{rust}{HTML}{A34A12}
+\definecolor{peach}{HTML}{F4A259}
+\definecolor{steel}{HTML}{2F6FB0}
+\definecolor{hl}{HTML}{FCE9DA}
+\definecolor{cardbg}{HTML}{FFFDF9}
+\definecolor{cardln}{HTML}{E2DED5}
+
+\setbeamercolor{normal text}{fg=ink,bg=paper}
+\setbeamercolor{frametitle}{fg=paper,bg=navy}
+\setbeamercolor{progress bar}{fg=peach,bg=navy!70}
+\setbeamercolor{alerted text}{fg=rust}
+\setbeamercolor{example text}{fg=steel}
+\setbeamercolor{background canvas}{bg=paper}
+\setbeamercolor{title separator}{fg=peach}
+\setbeamercolor{block title}{fg=navy,bg=cardln}
+\setbeamercolor{block body}{fg=body,bg=cardbg}
+
+%% ---------------- Macros ----------------
+\newcommand{\BR}{\mathrm{BR}}
+\newcommand{\eyebrow}[1]{{\scriptsize\bfseries\color{rust}\MakeUppercase{#1}}\par\smallskip}
+\newcommand{\bignum}[1]{{\Large\bfseries\color{rust}#1}}
+% Tarjeta: \card{ancho}{título}{texto}
+\newcommand{\card}[3]{%
+  \begin{beamercolorbox}[wd=#1,sep=6pt,rounded=true]{block body}
+    {\bfseries\color{navy}#2}\par\smallskip{\small #3}
+  \end{beamercolorbox}}
+% Figura con fallback: busca en ../figuras, ./figuras, ../figs y ../
+% Si no la encuentra, dibuja un recuadro con el nombre del archivo.
+\graphicspath{{../figuras/}{figuras/}{../figs/}{../}}
+\newcommand{\figph}[2]{%
+  \begin{tikzpicture}
+    \draw[dashed,thick,color=black!35,fill=black!5,rounded corners]
+      (0,0) rectangle (#2);
+    \node[color=black!55,font=\scriptsize,text width=0.85\linewidth,align=center]
+      at ($(0,0)!0.5!(#2)$) {Insertar figura:\\ \url{#1}};
+  \end{tikzpicture}}
+\newcommand{\fig}[3][]{%
+  \IfFileExists{../figuras/#2}{\includegraphics[#1]{#2}}{%
+  \IfFileExists{figuras/#2}{\includegraphics[#1]{#2}}{%
+  \IfFileExists{../figs/#2}{\includegraphics[#1]{#2}}{%
+  \IfFileExists{../#2}{\includegraphics[#1]{#2}}{\figph{#2}{#3}}}}}}
+
+\tikzset{
+  blk/.style={draw=steel,thick,fill=cardbg,rounded corners=3pt,
+              minimum height=7mm,inner xsep=5pt,font=\footnotesize,text=navy},
+  arr/.style={-{Latex[length=2.2mm]},thick,color=steel},
+  lbl/.style={font=\scriptsize\bfseries,text=rust,anchor=east},
+}
+
+\title{Simulación de un sistema 16-QAM pasabanda}
+\subtitle{FFE adaptativo, recuperación de portadora y curvas de BER a 32\,GBd}
+\author{Alejandro Stangaferro \and Luca Baccino \and Gabriel Garces}
+\institute{Comunicaciones Digitales Avanzadas · Trabajo Práctico N°1}
+\date{Córdoba, octubre de 2026}
+
+\begin{document}
+
+%==========================================================================
+\maketitle
+
+%==========================================================================
+\begin{frame}{Resumen}
+\centering
+\begin{columns}[T]
+  \column{0.24\textwidth}\card{\linewidth}{\bignum{01}\\ Simulador}{Arquitectura, calibración y FSM del receptor.\\[3pt]{\color{rust}\bfseries Luca}}
+  \column{0.24\textwidth}\card{\linewidth}{\bignum{02}\\ Curvas de BER}{Cuatro canales y el límite de la ecualización lineal.\\[3pt]{\color{rust}\bfseries Luca}}
+  \column{0.24\textwidth}\card{\linewidth}{\bignum{03}\\ Jitter de fase}{FFE vs.\ DPLL, PED de 4ª potencia vs.\ DD.\\[3pt]{\color{rust}\bfseries Gabriel}}
+  \column{0.24\textwidth}\card{\linewidth}{\bignum{04}\\ Offset de portadora}{Rango de adquisición del RFD y su límite $\BR/8$.\\[3pt]{\color{rust}\bfseries Alejandro}}
+\end{columns}
+\end{frame}
+
+%==========================================================================
+\section{Ejercicio 1: Simulador}
+%==========================================================================
+
+\begin{frame}{Un enlace 16-QAM a 32 GBd, un archivo por bloque}
+\eyebrow{Ejercicio 1 · Simulador}
+\centering
+\begin{tikzpicture}[node distance=4mm]
+  % TX
+  \node[blk] (t1) {Generador 16-QAM (Gray)};
+  \node[blk,right=of t1] (t2) {RRC $\beta=0{,}5$ · 2 SPS};
+  \node[blk,right=of t2] (t3) {Resampler $2\to4$};
+  \draw[arr] (t1)--(t2); \draw[arr] (t2)--(t3);
+  \node[lbl] at ($(t1.west)+(-2mm,0)$) {TX};
+  % Canal
+  \node[blk,below=5mm of t1.south west,anchor=north west] (c1) {Filtro $h$ (ISI)};
+  \node[blk,right=of c1] (c2) {AWGN calibrado en $E_b/N_0$};
+  \node[blk,right=of c2] (c3) {Portadora: $\phi_0 + f_{off}$ + jitter};
+  \draw[arr] (c1)--(c2); \draw[arr] (c2)--(c3);
+  \node[lbl] at ($(c1.west)+(-2mm,0)$) {CANAL};
+  % RX
+  \node[blk,below=5mm of c1.south west,anchor=north west] (r1) {Filtro anti-alias};
+  \node[blk,right=of r1] (r2) {Resampler $4\to2$};
+  \node[blk,right=of r2] (r3) {AGC};
+  \draw[arr] (r1)--(r2); \draw[arr] (r2)--(r3);
+  \node[lbl] at ($(r1.west)+(-2mm,0)$) {RX};
+  % Lazo
+  \node[blk,below=5mm of r1.south west,anchor=north west] (l1) {FFE 41 taps};
+  \node[blk,right=of l1] (l2) {NCO $e^{-j\theta}$};
+  \node[blk,right=of l2] (l3) {Slicer};
+  \draw[arr] (l1)--(l2); \draw[arr] (l2)--(l3);
+  \node[lbl] at ($(l1.west)+(-2mm,0)$) {LAZO DSP};
+  \node[right=3mm of l3,font=\scriptsize,text=body,align=left]
+    {Realimenta: CMA / DD-LMS al FFE\\PED $\to$ DPLL + RFD al NCO};
+  % Post
+  \node[blk,below=5mm of l1.south west,anchor=north west] (p1) {Alineador};
+  \node[blk,right=of p1] (p2) {Corrección de cycle slips};
+  \node[blk,right=of p2] (p3) {Contador de BER};
+  \draw[arr] (p1)--(p2); \draw[arr] (p2)--(p3);
+  \node[lbl] at ($(p1.west)+(-2mm,0)$) {POST};
+\end{tikzpicture}
+
+\vspace{2mm}
+{\small Cadena hasta el AGC vectorizada; el lazo FFE/NCO/slicer se procesa símbolo a símbolo.}
+\end{frame}
+
+%--------------------------------------------------------------------------
+\begin{frame}{Tres dominios de muestreo, todos configurables}
+\eyebrow{Ejercicio 1 · Configuración}
+\begin{columns}[T]
+\column{0.42\textwidth}
+  \textbf{Tasas} ($\BR = 32$ GBd)\par\medskip
+  \begin{tabular}{lcc}
+    \toprule
+    Dominio & SPS & $f_s$ \\
+    \midrule
+    Transmisor   & 2 & 64 GHz \\
+    Canal        & 4 & 128 GHz \\
+    DSP receptor & 2 & 64 GHz \\
+    \bottomrule
+  \end{tabular}
+  \par\medskip
+  {\small El RRC y el anti-alias se diseñan para el OVS pedido; el resampler
+  cambia la tasa por $L/M = OVS_{out}/OVS_{in}$ con un filtro polifásico.}
+\column{0.54\textwidth}
+  \textbf{Configuración por defecto}\par\medskip
+  {\small
+  \begin{tabular}{@{}lp{0.72\linewidth}@{}}
+    \toprule
+    Bloque & Valor \\
+    \midrule
+    Pulso & RRC $\beta=0{,}5$, span 20 $\to \pm0{,}75\,\BR$ \\
+    FFE   & 41 taps a $T/2$ · $\mu_{CMA}=3\cdot10^{-4}$ · $\mu_{DD}=3\cdot10^{-5}$ \\
+    AGC   & $\mu = 10^{-4}$ \\
+    CPR   & RFD + DPLL de 2º orden · $k_p=2\cdot10^{-2}$ · $k_i=k_p/500$ \\
+    \bottomrule
+  \end{tabular}}
+\end{columns}
+\end{frame}
+
+%--------------------------------------------------------------------------
+\begin{frame}{Calibrar el ruido es la base de toda curva de BER}
+\eyebrow{Ejercicio 1 · Diseño}
+\begin{beamercolorbox}[wd=\textwidth,sep=10pt,rounded=true,center]{frametitle}
+  \Large $\displaystyle \sigma_n^2 = \frac{P_s \cdot OVS_{CH}}{(E_b/N_0)\,\log_2 M}$
+\end{beamercolorbox}
+\vspace{4mm}
+\begin{columns}[T]
+  \column{0.32\textwidth}\card{\linewidth}{$P_s$}{Potencia media por muestra a la salida del canal, normalizado a energía unitaria.}
+  \column{0.32\textwidth}\card{\linewidth}{$E_s = P_s\cdot OVS_{CH}$}{Energía por símbolo; con $E_s/N_0=(E_b/N_0)\log_2M$ se despeja $\sigma_n^2$.}
+  \column{0.32\textwidth}\card{\linewidth}{Resultado}{Penalidad $\le 0{,}06$ dB en canal ideal: valida la calibración (Ej.~2).}
+\end{columns}
+\end{frame}
+
+%--------------------------------------------------------------------------
+\begin{frame}{Cuatro decisiones de diseño del lazo}
+\eyebrow{Ejercicio 1 · Diseño}
+\begin{columns}[T]
+  \column{0.48\textwidth}
+    \card{\linewidth}{1 · Error del CMA antes del NCO}{$e=(R_2-|y|^2)\,y$ sólo mira el módulo: es ciego a la fase y funciona con la constelación girando.}
+    \vspace{3mm}
+    \card{\linewidth}{3 · Selección de anillo}{Sólo los 8 puntos con $|I|=|Q|$ cumplen $\arg(a^4)=\pi$. Se eligen por su módulo: criterio ciego a la fase.}
+  \column{0.48\textwidth}
+    \card{\linewidth}{2 · Error DD des-rotado}{$e=(\hat a - y_{rot})\,e^{j\theta}$: sin ese factor el FFE compite con el NCO por corregir la misma fase.}
+    \vspace{3mm}
+    \card{\linewidth}{4 · Gear shifting y $k_p = 2\cdot10^{-2}$}{RFD con ganancia alta para adquirir y baja para seguir. Con $k_p=5\cdot10^{-3}$ el DPLL no absorbe el residuo del RFD y no engancha.}
+\end{columns}
+\end{frame}
+
+%--------------------------------------------------------------------------
+\begin{frame}{Una FSM habilita cada algoritmo cuando puede funcionar}
+\eyebrow{Ejercicio 1 · Gestor de simulación}
+\centering\small
+\begin{tabular}{clcccl}
+  \toprule
+  \# & Etapa & FFE & RFD & FCR & Se habilita cuando\ldots \\
+  \midrule
+  1 & FFE-CMA                  & CMA & ---  & ---  & Ojo cerrado: sólo el CMA funciona \\
+  2 & + RFD adquisición        & CMA & adq  & ---  & Ojo abierto \\
+  3 & + FCR 4ª potencia        & CMA & trk  & 4ª   & Frecuencia gruesa estimada \\
+  4 & CMA + FCR-DD             & CMA & ---  & DD   & Fase enganchada \\
+  5 & FFE-DD + FCR-DD          & DD  & ---  & DD   & Decisiones confiables \\
+  6 & Alineación + cycle slips & DD  & ---  & DD   & Receptor en régimen \\
+  7 & BER                      & DD  & ---  & DD   & Estado estacionario \\
+  \bottomrule
+\end{tabular}
+\par\medskip
+{\small El CMA va primero: es el único que funciona con el ojo cerrado. Los
+algoritmos dirigidos por decisiones necesitan decisiones mayoritariamente correctas.}
+\end{frame}
+
+%--------------------------------------------------------------------------
+\begin{frame}{Corrida de ejemplo: el receptor recupera el offset}
+\eyebrow{Ejercicio 1 · Resultados}
+{\small Canal moderado · $E_b/N_0=16$ dB · $\phi_0=0{,}7$ rad · $f_{off}=\BR/200$ · jitter de 0,05 rad}
+\vspace{3mm}
+\begin{columns}[T]
+  \column{0.32\textwidth}\card{\linewidth}{\bignum{$0{,}005\,\BR$}}{RFD ($0{,}00722$) + rama integral del FCR ($-0{,}00222$) = offset aplicado.}
+  \column{0.32\textwidth}\card{\linewidth}{\bignum{$0{,}0314$}}{rad/símbolo: pendiente del NCO tras el enganche, igual a $2\pi/200$.}
+  \column{0.32\textwidth}\card{\linewidth}{\bignum{2,9 dB}}{SNR en el slicer 19,12 dB vs.\ 22,02 dB ideal: amplificación de ruido del FFE.}
+\end{columns}
+\vspace{3mm}
+{\small \textbf{Etapas 1–2:} anillos, porque el CMA no frena la rotación; se cierran en la
+etapa 3 con el PED de 4ª potencia. \textbf{FFE:} espejo del canal; con 101 taps
+desaparece el piso entre 20 y 32 GHz.}
+\end{frame}
+
+%--------------------------------------------------------------------------
+\begin{frame}{Constelación a la entrada del slicer, por etapa}
+\eyebrow{Ejercicio 1 · Resultados}
+\centering
+\fig[width=\linewidth,height=0.60\textheight,keepaspectratio]{ej1_constelaciones.png}{12,6}\\[1mm]
+{\footnotesize Etapas 1–2: anillos (el CMA no frena la rotación). Desde la etapa 3, con el PED de 4ª potencia, la constelación queda fija.}
+\end{frame}
+
+%--------------------------------------------------------------------------
+\begin{frame}{Métricas del receptor}
+\eyebrow{Ejercicio 1 · Resultados}
+\centering
+\fig[width=\linewidth,height=0.60\textheight,keepaspectratio]{ej1_metricas.pdf}{12,6}\\[1mm]
+{\footnotesize El MSE y la SNR saltan al entrar la etapa 3. RFD $\approx 0{,}23$ GHz + FCR $\to$ offset real de 0,16 GHz; el NCO crece linealmente.}
+\end{frame}
+
+%--------------------------------------------------------------------------
+\begin{frame}{Coeficientes y respuesta del FFE}
+\eyebrow{Ejercicio 1 · Resultados}
+\centering
+\fig[width=\linewidth,height=0.60\textheight,keepaspectratio]{ej1_ffe.png}{12,6}\\[1mm]
+{\footnotesize Tap central $\approx 1$ y los adyacentes cancelan la ISI de postcursor; $|W(f)|$ es el espejo del canal moderado (pico de $\approx 9$ dB en $\BR/2 = 16$ GHz).}
+\end{frame}
+
+%--------------------------------------------------------------------------
+\begin{frame}{Densidad espectral de potencia en la cadena}
+\eyebrow{Ejercicio 1 · Resultados}
+\centering
+\fig[width=\linewidth,height=0.60\textheight,keepaspectratio]{ej1_psd.png}{12,6}\\[1mm]
+{\footnotesize Espectro conformado por el RRC hasta $(1+\beta)\BR/2 = 24$ GHz, piso de ruido del canal y efecto del filtro adaptado.}
+\end{frame}
+
+%--------------------------------------------------------------------------
+\begin{frame}{Diagrama de ojo a la entrada del slicer}
+\eyebrow{Ejercicio 1 · Resultados}
+\centering
+\fig[width=\linewidth,height=0.60\textheight,keepaspectratio]{ej1_ojo_heatmap.png}{12,6}\\[1mm]
+{\footnotesize Densidad de trayectorias (30\,000 símbolos de la etapa de BER). Los ojos se abren en $t/T_{sym} = -1$ y $0$: los instantes de decisión.}
+\end{frame}
+
+%==========================================================================
+\section{Ejercicio 2: Curvas de BER}
+%==========================================================================
+
+\begin{frame}{Cuatro canales elegidos por la posición de sus raíces}
+\eyebrow{Ejercicio 2 · Curvas de BER}
+\centering\small
+\begin{tabular}{llccc}
+  \toprule
+  Perfil & $H(z)$ & $|z_i|$ & Tilt & Penalidad \\
+  \midrule
+  Impulso  & $1$ & --- & 0 dB & $\le 0{,}06$ dB \\
+  Leve     & $1 + 0{,}15z^{-1}$ & $0{,}15$ & 2,6 dB & 0,2–0,3 dB \\
+  Moderado & $1 + 0{,}45z^{-1} - 0{,}20z^{-2}$ & $0{,}73;\ 0{,}28$ & 11,7 dB & 2,6–2,9 dB \\
+  \rowcolor{hl}
+  Agresivo & $1 + 0{,}80z^{-1} + 0{,}35z^{-2} - 0{,}20z^{-3}$ & $0{,}82;\ 0{,}82;\ 0{,}30$ & 16,4 dB & 6,2–8,4 dB \\
+  \bottomrule
+\end{tabular}
+\par\bigskip
+\raggedright
+\begin{itemize}\footnotesize
+  \item Raíces más cerca de la circunferencia unitaria $\to$ nulo más profundo $\to$ más ganancia del FFE.
+  \item Sin portadora pero con \textbf{todos los algoritmos activos}; ventana de BER para $\ge 100$ errores (tope $2{,}5\cdot10^6$ símbolos).
+  \item El RFD se acota a $\BR/500$, por debajo del rango de enganche del DPLL ($\approx k_p\BR/8 = \BR/400$).
+\end{itemize}
+\end{frame}
+
+%--------------------------------------------------------------------------
+\begin{frame}{Respuesta de los canales y raíces de $H(z)$}
+\eyebrow{Ejercicio 2 · Canales}
+\centering
+\fig[width=\linewidth,height=0.62\textheight,keepaspectratio]{ej2_canales.png}{12,6}\\[1mm]
+{\footnotesize El argumento de la raíz fija la frecuencia del nulo y su módulo, la profundidad:
+$\pm16$ GHz ($\BR/2$) en leve y moderado; $\pm12$ y $\pm20$ GHz en el agresivo.}
+\end{frame}
+
+%--------------------------------------------------------------------------
+\begin{frame}{Canal ideal: penalidad plana en 0,06 dB}
+\eyebrow{Ejercicio 2 · Calibración}
+\begin{columns}[T]
+\column{0.44\textwidth}
+  \small
+  \begin{tabular}{cccc}
+    \toprule
+    $E_b/N_0$ & SNR slicer & $E_s/N_0$ ideal & Pen. \\
+    \midrule
+     8 & 14,01 & 14,02 & +0,01 \\
+     9 & 14,98 & 15,02 & +0,04 \\
+    10 & 15,96 & 16,02 & +0,06 \\
+    11 & 16,97 & 17,02 & +0,05 \\
+    12 & 17,96 & 18,02 & +0,06 \\
+    13 & 18,96 & 19,02 & +0,06 \\
+    14 & 19,96 & 20,02 & +0,06 \\
+    \bottomrule
+  \end{tabular}\\[1mm]
+  {\scriptsize Valores en dB.}
+\column{0.52\textwidth}
+  \textbf{Requisito $<0{,}1$ dB: cuatro decisiones}
+  \begin{itemize}\small
+    \item \textbf{41 taps}: con 31, 0,4 dB por truncamiento.
+    \item \textbf{$\mu_{DD}=3\cdot10^{-5}$}: con $5\cdot10^{-4}$ el ruido de gradiente sumaba 0,1 dB.
+    \item \textbf{MMSE insesgado}: el LMS encoge la constelación por $\alpha=\gamma/(1+\gamma)$; dividir por $\alpha$ recupera 0,04–0,08 dB.
+    \item \textbf{$\mu_{AGC}=10^{-4}$}: con $10^{-3}$ el jitter de ganancia ($\sim$2\,\%) hacía crecer la penalidad con la SNR.
+  \end{itemize}
+\end{columns}
+\end{frame}
+
+%--------------------------------------------------------------------------
+\begin{frame}{El canal ideal se superpone con la curva teórica}
+\eyebrow{Ejercicio 2 · Resultados}
+\begin{columns}[c]
+\column{0.58\textwidth}
+  \centering\fig[width=\linewidth,height=0.75\textheight,keepaspectratio]{ej2_ber.png}{7.8,5.2}
+\column{0.40\textwidth}
+  \textbf{Los nulos caen donde predicen las raíces}
+  \begin{itemize}\small
+    \item $\pm\BR/2$ en leve y moderado: raíz real negativa.
+    \item $\pm0{,}37\,\BR$ en el agresivo: par complejo conjugado.
+  \end{itemize}
+  \medskip
+  \textbf{El FFE es el espejo del canal}
+  \begin{itemize}\small
+    \item Moderado: $-10{,}1$ dB $\to$ $+9$ dB.
+    \item Agresivo: $-13{,}1$ dB $\to$ $+12$ dB.
+  \end{itemize}
+\end{columns}
+\end{frame}
+
+%--------------------------------------------------------------------------
+\begin{frame}{El FFE es el espejo del canal}
+\eyebrow{Ejercicio 2 · Resultados}
+\centering
+\fig[width=\linewidth,height=0.62\textheight,keepaspectratio]{ej2_respuestas.png}{12,6}\\[1mm]
+{\footnotesize Donde el canal se hunde, el FFE levanta (moderado $-10{,}1\to+9$ dB; agresivo $-13{,}1\to+12$ dB), y esa ganancia también la recibe el ruido.}
+\end{frame}
+
+%--------------------------------------------------------------------------
+{
+\setbeamercolor{background canvas}{bg=peach}
+\setbeamercolor{normal text}{fg=navy}
+\begin{frame}[plain]
+\vfill
+{\scriptsize\bfseries\color{navy}EJERCICIO 2 · LIMITACIÓN DE LA ECUALIZACIÓN LINEAL}\par\bigskip
+{\huge\bfseries\color{navy} El FFE no elimina la ISI:\\[2mm] la cambia por ruido.}\par\bigskip\bigskip
+{\Large\color{navy}$\displaystyle W_{MMSE}(f)=\frac{H^*(f)}{|H(f)|^2+N_0/E_s}$}\par\bigskip
+{\normalsize\color{navy}A baja SNR, $N_0/E_s$ acota la ganancia en los nulos. A alta SNR tiende
+a zero-forcing ($1/H$) y el ruido del nulo se amplifica por $1/|H|^2$.}
+\vfill
+\end{frame}
+}
+
+%--------------------------------------------------------------------------
+\begin{frame}{Por eso la penalidad crece con la SNR}
+\eyebrow{Ejercicio 2 · Evidencia}
+\begin{columns}[T]
+  \column{0.32\textwidth}\card{\linewidth}{\bignum{6,2 $\to$ 8,4 dB}}{Penalidad del canal agresivo al subir $E_b/N_0$: no es constante.}
+  \column{0.32\textwidth}\card{\linewidth}{\bignum{0,06 dB}}{Penalidad del canal ideal: plana, sin amplificación de ruido.}
+  \column{0.32\textwidth}\card{\linewidth}{\bignum{$1/|H|^2$}}{Factor de ruido en el nulo cuando la solución se acerca a zero-forcing.}
+\end{columns}
+\vspace{4mm}
+{\small Las curvas de los canales distorsionados no son la teórica desplazada: tienen
+\textbf{menor pendiente} y se separan cada vez más hacia BER bajas. Al crecer
+$E_b/N_0$ la solución MMSE migra hacia zero-forcing y aumenta el peaking del FFE.}
+\end{frame}
+
+%--------------------------------------------------------------------------
+\begin{frame}{Penalidad de SNR y peaking del FFE}
+\eyebrow{Ejercicio 2 · Resultados}
+\begin{columns}[c]
+  \column{0.49\textwidth}\centering\fig[width=\linewidth]{ej2_penalidad.png}{6.8,4.6}\\[-1mm]{\scriptsize Penalidad de SNR vs.\ $E_b/N_0$}
+  \column{0.49\textwidth}\centering\fig[width=\linewidth]{ej2_peaking.pdf}{6.8,4.6}\\[-1mm]{\scriptsize Peaking del FFE en el canal agresivo}
+\end{columns}
+\end{frame}
+
+%==========================================================================
+\section{Ejercicio 3: Jitter de fase}
+%==========================================================================
+
+\begin{frame}{¿Quién sigue el jitter: el FFE o el DPLL?}
+\eyebrow{Ejercicio 3 · Jitter de fase}
+\begin{columns}[c]
+\column{0.52\textwidth}
+  \begin{beamercolorbox}[wd=\linewidth,sep=10pt,rounded=true]{frametitle}
+    $\phi(t) = A\,\sin(2\pi f_j t)$\\[2mm]
+    {\color{peach}$A = 0{,}1$ rad · $f_j = 9{,}6$ MHz}\\[2mm]
+    $e_{res}[n] = \angle\big(y_r[n]\,\hat a^*[n]\big)$
+  \end{beamercolorbox}
+\column{0.44\textwidth}
+  \bignum{0,0707 rad}\par\smallskip
+  {\small RMS del error residual sin compensación ($A/\sqrt2$): la referencia contra la que se compara cada caso.}
+  \par\medskip
+  {\footnotesize\textbf{Escenario:} canal moderado · $E_b/N_0 = 14$ dB · sin offset ni fase estática.}
+\end{columns}
+\end{frame}
+
+%--------------------------------------------------------------------------
+\begin{frame}{El DPLL elimina casi toda la degradación}
+\eyebrow{Ejercicio 3 · Sanidad}
+\centering\small
+\begin{tabular}{lccc}
+  \toprule
+  Caso & RMS residual & SNR & Penalidad \\
+  \midrule
+  FFE normal · DPLL apagado & 0,06641 rad & 16,24 dB & 1,02 dB \\
+  FFE rápido ($\mu_{dd}=2\cdot10^{-3}$) · DPLL apagado & 0,03253 rad & 16,74 dB & 0,35 dB \\
+  \rowcolor{hl}
+  \textbf{FFE congelado · DPLL prendido} & \textbf{0,00809 rad} & \textbf{17,19 dB} & \textbf{0,002 dB} \\
+  \bottomrule
+\end{tabular}
+\par\bigskip
+\begin{columns}[T]
+  \column{0.46\textwidth}\card{\linewidth}{FFE}{Normal: RMS $\approx A/\sqrt2$, casi no sigue. Rápido: sigue una parte, pero queda una componente sinusoidal.}
+  \column{0.46\textwidth}\card{\linewidth}{DPLL}{$\tfrac14$ del RMS del FFE rápido y menos de $\tfrac1{10}$ en potencia: el NCO sigue la fase de entrada.}
+\end{columns}
+\end{frame}
+
+%--------------------------------------------------------------------------
+\begin{frame}{Error de fase residual: FFE vs.\ DPLL}
+\eyebrow{Ejercicio 3 · Sanidad}
+\centering
+\fig[width=\linewidth,height=0.60\textheight,keepaspectratio]{Comparacion_del_error_de_fase_residual.png}{12,6}\\[1mm]
+{\footnotesize Jitter de 0,1 rad a 9,6 MHz (gris). El FFE normal lo deja pasar entero, el FFE rápido lo sigue a medias y con el DPLL queda sólo ruido.}
+\end{frame}
+
+%--------------------------------------------------------------------------
+\begin{frame}{El DPLL es un pasa-altos para el jitter}
+\eyebrow{Ejercicio 3 · Barrido de $k_p$ y $f_{jitter}$}
+\centering
+\begin{tikzpicture}[node distance=8mm]
+  \node[blk] (ped) {PED (4ª potencia o DD)};
+  \node[blk,right=of ped] (lf) {Filtro de lazo: $k_p + k_i\sum$};
+  \node[blk,right=of lf] (nco) {NCO $\theta[n]$};
+  \draw[arr] (ped)--(lf); \draw[arr] (lf)--(nco);
+  \draw[arr] (nco.south) -- ++(0,-4mm) -| (ped.south);
+\end{tikzpicture}\\[1mm]
+{\scriptsize $k_i = k_p/500$: frente al jitter se comporta casi como un lazo de 1er orden, $B \approx k_p\,\BR/2\pi$ (aprox.)}
+\par\medskip
+\begin{columns}[T]
+  \column{0.31\textwidth}\card{\linewidth}{$f \ll B$ · sigue}{El NCO copia el jitter: penalidad $\approx 0$ dB.}
+  \column{0.31\textwidth}\card{\linewidth}{$f \approx B$ · transición}{Sigue una parte. Más $k_p$ corre la transición a frecuencias más altas.}
+  \column{0.31\textwidth}\card{\linewidth}{$f \gg B$ · satura}{No lo ve: quedan $A^2/2 = 0{,}005$ rad$^2$ enteros $\to \approx 1$ dB.}
+\end{columns}
+\par\medskip
+{\footnotesize Barrido: 4 valores de $k_p$ · 3,2 MHz a $\approx$1 GHz · FFE congelado. \textbf{Costo de subir $k_p$:} más ruido en el NCO.}
+\end{frame}
+
+%--------------------------------------------------------------------------
+\begin{frame}{Penalidad vs.\ frecuencia de jitter}
+\eyebrow{Ejercicio 3 · Resultados}
+\begin{columns}[c]
+  \column{0.49\textwidth}\centering\fig[width=\linewidth]{PED_de_4ta_potencia__penalidad_de_SNR_vs_frecuencia_de_jitter.png}{6.8,4.6}\\[-1mm]{\scriptsize PED de 4ª potencia}
+  \column{0.49\textwidth}\centering\fig[width=\linewidth]{PED_dirigido_por_decisiones__DD___penalidad_de_SNR_vs_frecuencia_de_jitter.png}{6.8,4.6}\\[-1mm]{\scriptsize PED dirigido por decisiones}
+\end{columns}
+\end{frame}
+
+%--------------------------------------------------------------------------
+\begin{frame}{El PED DD sigue jitter más rápido que el de 4ª potencia}
+\eyebrow{Ejercicio 3 · Comparación de PED}
+\centering
+\begin{tabular}{cccc}
+  \toprule
+  $k_p$ & $f_{jitter}$ & 4ª potencia & DD \\
+  \midrule
+  $2\cdot10^{-2}$ & $\approx$ 44 MHz  & 0,56 dB & \textbf{0,22 dB} \\
+  $5\cdot10^{-2}$ & $\approx$ 125 MHz & 0,56 dB & \textbf{0,26 dB} \\
+  \bottomrule
+\end{tabular}
+\par\bigskip
+\begin{columns}[T]
+  \column{0.46\textwidth}\card{\linewidth}{4ª potencia}{Ciego a las decisiones: sirve para adquirir. Pero sólo actualiza con los 8 puntos diagonales.}
+  \column{0.46\textwidth}\card{\linewidth}{Dirigido por decisiones}{$e_{DD}=\operatorname{Im}\{y_r\hat a^*\}/|\hat a|^2 \approx \epsilon$ en casi cada símbolo: más ganancia efectiva y más ancho de banda para el mismo $k_p$.}
+\end{columns}
+\par\medskip
+{\small En los extremos las curvas coinciden: a baja frecuencia ambos siguen y a alta ninguno.}
+\end{frame}
+
+%--------------------------------------------------------------------------
+\begin{frame}{Comparación de PED para cada $k_p$}
+\eyebrow{Ejercicio 3 · Comparación de PED}
+\centering
+\begin{columns}[T]
+  \column{0.36\textwidth}\centering
+    \fig[width=\linewidth,height=2.45cm,keepaspectratio]{Comparacion_de_PED_para_kp_5e_03.png}{5,3.2}\\[-1mm]{\scriptsize $k_p = 5\cdot10^{-3}$}\\[1mm]
+    \fig[width=\linewidth,height=2.45cm,keepaspectratio]{Comparacion_de_PED_para_kp_2e_02.png}{5,3.2}\\[-1mm]{\scriptsize $k_p = 2\cdot10^{-2}$}
+  \column{0.36\textwidth}\centering
+    \fig[width=\linewidth,height=2.45cm,keepaspectratio]{Comparacion_de_PED_para_kp_1e_02.png}{5,3.2}\\[-1mm]{\scriptsize $k_p = 10^{-2}$}\\[1mm]
+    \fig[width=\linewidth,height=2.45cm,keepaspectratio]{Comparacion_de_PED_para_kp_5e_02.png}{5,3.2}\\[-1mm]{\scriptsize $k_p = 5\cdot10^{-2}$}
+  \column{0.24\textwidth}
+    \vspace{6mm}
+    {\footnotesize Azul: 4ª potencia.\\ Naranja: DD.\\[3mm]
+    El DD queda por debajo en toda la transición: más ancho de banda para el mismo $k_p$.\\[3mm]
+    En los extremos coinciden.}
+\end{columns}
+\end{frame}
+
+%==========================================================================
+\section{Ejercicio 4: Offset de portadora}
+%==========================================================================
+
+\begin{frame}{RFD: estimar la frecuencia contando cruces de cuadrante}
+\eyebrow{Ejercicio 4 · Offset de portadora}
+\begin{columns}[c]
+\column{0.36\textwidth}
+  \centering
+  \begin{tikzpicture}[scale=1.25]
+    \fill[peach,opacity=0.45] (0,0) -- (1.6,0) arc (0:90:1.6) -- cycle;
+    \draw[dashed,thick,black!30] (0,0) circle (1.6);
+    \draw[thick,black!55] (-1.9,0) -- (1.9,0);
+    \draw[thick,black!55] (0,-1.9) -- (0,1.9);
+    \foreach \a in {45,135,225,315} \fill[navy] (\a:1.6) circle (2.2pt);
+    \draw[-{Latex[length=2.5mm]},line width=1.6pt,steel] (25:1.95) arc (25:65:1.95);
+    \node[font=\scriptsize,text=rust] at (45:0.9) {$90^\circ$};
+  \end{tikzpicture}
+\column{0.6\textwidth}
+  \begin{enumerate}\small
+    \item \textbf{Sólo los puntos diagonales} ($|I|=|Q|$): se comportan como una QPSK rotada $45^\circ$.
+    \item \textbf{Ángulo plegado:} $\theta = \mathrm{mod}(\angle y,\pi/2) - \pi/4$. Con frecuencia residual, $\theta$ deriva y salta de un borde al otro.
+    \item \textbf{Bang-bang:} si $|\Delta\theta| > \pi/4$ hubo un cruce; el integrador da un paso fijo $\pm\mu$ en sentido contrario.
+  \end{enumerate}
+  \medskip
+  {\scriptsize\textbf{Escenario:} canal moderado · $E_b/N_0 = 13{,}5$ dB (BER $\approx 10^{-3}$) · sólo offset · FSM completa · $\mu_{acq}/\mu_{trk}$.}
+\end{columns}
+\end{frame}
+
+%--------------------------------------------------------------------------
+\begin{frame}{Barrido en $\pm\BR/12$: los siete casos enganchan}
+\eyebrow{Ejercicio 4 · Barrido}
+\begin{columns}[c]
+\column{0.38\textwidth}
+  \small
+  \begin{tabular}{ccc}
+    \toprule
+    $f_{off}/\BR$ & $f^{final}_{RFD}/\BR$ & BER \\
+    \midrule
+    $-0{,}0833$ & $-0{,}0847$ & $1{,}21\cdot10^{-3}$ \\
+    $-0{,}0556$ & $-0{,}0539$ & $1{,}03\cdot10^{-3}$ \\
+    $-0{,}0278$ & $-0{,}0291$ & $8{,}63\cdot10^{-4}$ \\
+    $0$         & $0{,}0012$  & $8{,}93\cdot10^{-4}$ \\
+    $0{,}0278$  & $0{,}0288$  & $8{,}85\cdot10^{-4}$ \\
+    $0{,}0556$  & $0{,}0565$  & $1{,}00\cdot10^{-3}$ \\
+    $0{,}0833$  & $0{,}0842$  & $1{,}19\cdot10^{-3}$ \\
+    \bottomrule
+  \end{tabular}
+\column{0.58\textwidth}
+  \raggedright{\small El RFD converge en la etapa 2 y queda estable. Su residuo de paso fijo
+  lo absorbe la rama integral del DPLL desde la etapa 3. La BER se mantiene en
+  $\approx10^{-3}$, el punto de calibración.}
+\end{columns}
+\end{frame}
+
+%--------------------------------------------------------------------------
+\begin{frame}{Evolución de las ramas integrales}
+\eyebrow{Ejercicio 4 · Barrido}
+\centering
+\fig[width=\linewidth,height=0.60\textheight,keepaspectratio]{RFD1.png}{12,6}\\[1mm]
+{\footnotesize Arriba: el RFD converge en la etapa 2 al offset real (punteado). Abajo: la rama integral del DPLL absorbe el residuo desde la etapa 3.}
+\end{frame}
+
+%--------------------------------------------------------------------------
+\begin{frame}{La ambigüedad de $\pi/2$ fija el rango de captura}
+\eyebrow{Ejercicio 4 · Límite fundamental}
+Incremento de fase por símbolo debido al offset: $\Delta\varphi = 2\pi\,f_{off}/\BR$.\par\medskip
+El detector, igual que uno de 4ª potencia, sólo distingue $\Delta\varphi \in (-\pi/4,\ \pi/4]$:
+\vspace{2mm}
+\begin{beamercolorbox}[wd=\textwidth,sep=10pt,rounded=true,center]{frametitle}
+  \Large $\displaystyle \left|2\pi\frac{f_{off}}{\BR}\right| < \frac{\pi}{4}
+  \;\Longrightarrow\; {\color{peach}|f_{off}| < \frac{\BR}{8}}$
+\end{beamercolorbox}
+\vspace{3mm}
+A 32 GBd son \textbf{4 GHz}. Fuera de ese rango el detector aliasea y engancha en
+\[ \hat f_{off} = f_{off} - k\,\frac{\BR}{4}, \qquad k\in\mathbb{Z}. \]
+\end{frame}
+
+%--------------------------------------------------------------------------
+\begin{frame}{Fuera de $\BR/8$ engancha estable, pero mal}
+\eyebrow{Ejercicio 4 · Validación}
+\begin{columns}[T]
+\column{0.52\textwidth}
+  \small
+  \begin{tabular}{ccc}
+    \toprule
+    $f_{off}/\BR$ & $f^{final}_{RFD}/\BR$ & BER \\
+    \midrule
+    $1/16 \approx 0{,}0625$ & $0{,}0610$ & $1{,}11\cdot10^{-3}$ \\
+    $\approx 1/8^-$ & $0{,}1240$ & $1{,}57\cdot10^{-3}$ \\
+    \rowcolor{hl} $\approx 1/8^+$ & $-0{,}1226$ & $0{,}5$ \\
+    \rowcolor{hl} $1/6 \approx 0{,}1667$ & $-0{,}0843$ & $0{,}5$ \\
+    \bottomrule
+  \end{tabular}
+\column{0.44\textwidth}
+  \card{\linewidth}{Aliasing predicho}{$1/6 - 1/4 = -0{,}0833$; medido $-0{,}0843$. No diverge ni se satura: no depende de las ganancias del lazo.}
+  \vspace{3mm}
+  \card{\linewidth}{¿Por qué BER $= 0{,}5$?}{Queda un error de $\BR/4$: $90^\circ$ por símbolo, invisible para el PED de 4ª potencia y el DD.}
+
+\end{columns}
+\end{frame}
+
+\begin{frame}{Validación del límite de captura}
+\eyebrow{Ejercicio 4 · Validación}
+\centering
+\fig[width=\linewidth,height=0.60\textheight,keepaspectratio]{RFD2.png}{12,6}\\[1mm]
+{\footnotesize $\BR/16$ y $\approx\BR/8^-$ convergen al valor real; $\approx\BR/8^+$ y $\BR/6$ enganchan en $f_{off}-\BR/4$ (signo opuesto).}
+\end{frame}
+
+%==========================================================================
+\section{Conclusiones}
+%==========================================================================
+
+\begin{frame}{Conclusiones}
+\begin{columns}[T]
+  \column{0.48\textwidth}
+    \card{\linewidth}{Simulador validado}{Reproduce la curva teórica con penalidad $<0{,}1$ dB en canal ideal (0,06 dB).}
+    \vspace{3mm}
+    \card{\linewidth}{Jitter}{El DPLL lo sigue mucho mejor que el FFE; $k_p$ fija el compromiso ancho de banda–ruido y el PED DD da más ancho de banda.}
+  \column{0.48\textwidth}
+    \card{\linewidth}{Ecualización lineal}{Cambia ISI por ruido: en canales con nulos profundos la penalidad crece con la SNR.}
+    \vspace{3mm}
+    \card{\linewidth}{Offset de portadora}{El RFD engancha en $\pm\BR/12$; su límite fundamental de $\pm\BR/8$ se validó por simulación.}
+\end{columns}
+\end{frame}
+
+%--------------------------------------------------------------------------
+\begin{frame}[standout]
+  ¿Preguntas?\\[4mm]
+  {\normalsize Gracias}
+\end{frame}
+
+\end{document}

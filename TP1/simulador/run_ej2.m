@@ -32,22 +32,11 @@ BER_FLOOR   = 5e-6;       % si un punto baja de esto, se corta el barrido
 cfg0 = config_default();
 cfg0.dbg.en        = false;   % sin figuras de debug durante el barrido
 cfg0.sim.verbose   = false;
-cfg0.ch.carrier_en = false;   % <-- la consigna pide quitar efectos de portadora
+cfg0.ch.carrier_en = false;   % efectos de portadora
 
-% --- RFD acotado a la especificacion de este escenario -------------------
-% El RFD sigue ACTIVO (la consigna pide todos los algoritmos funcionando),
-% pero aca el offset de portadora especificado es CERO.  Con la ganancia y
-% el clamp pensados para el Ej.4 (rango +-BR/8) el integrador no tiene nada
-% que estimar y solo integra ruido: a Eb/N0=8 dB deriva hasta ~0.005 BR, se
-% sale del rango de enganche del DPLL (kp*pi/4 = 0.0025 BR), la constelacion
-% gira y el aligner pierde el pico -> BER = 0.5.
-%
-% flim no es una constante del algoritmo sino una especificacion del
-% sistema: BR/8 es el limite matematico del detector, no la tolerancia del
-% oscilador.  Aca la tolerancia es cero, asi que se acota en consecuencia.
 cfg0.rx.rfd.mu_acq = 1e-4;
 cfg0.rx.rfd.mu_trk = 1e-5;
-cfg0.rx.rfd.flim   = 2*pi/500;   % |f_rfd| <= BR/500, por debajo del pull-in
+cfg0.rx.rfd.flim   = 2*pi/500;   % |f_rfd| <= BR/500
 
 %% ================== Barrido ==================
 R = struct();
@@ -75,7 +64,7 @@ for p = 1:numel(perfiles)
         % --- dimensionado: uso la BER del punto anterior como prediccion,
         %     y si no hay, la teorica de AWGN (optimista -> se corrige sola)
         if k > 1 && isfinite(ber(k-1)) && ber(k-1) > 0
-            ber_pred = ber(k-1) / 4;            % ~ una decada cada 2-3 dB
+            ber_pred = ber(k-1) / 4;  
         else
             ber_pred = ber_theory_qam(ebv(k), cfg.mod.M);
         end

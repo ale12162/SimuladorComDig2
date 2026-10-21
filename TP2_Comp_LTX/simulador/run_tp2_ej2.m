@@ -8,7 +8,7 @@
 %     sin y con el filtro del driver.
 
 clear; close all; clc;
-fig_dir = fullfile('..', 'Informes', 'TP2_Comp_LTX', 'figuras');
+fig_dir = fullfile('..', 'informe', 'figuras');
 res_dir = 'resultados_tp2';
 if ~exist(fig_dir, 'dir'), mkdir(fig_dir); end
 if ~exist(res_dir, 'dir'), mkdir(res_dir); end

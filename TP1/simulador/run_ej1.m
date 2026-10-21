@@ -8,7 +8,7 @@ cfg = config_default();
 %% ---- Configuracion del escenario de demo ----
 cfg.mod.M         = 16;
 cfg.ch.EbN0_dB    = 16;
-cfg.ch.h          = channel_profiles('moderate', cfg.rate.OVS_CH);
+cfg.ch.h          = channel_profiles('impulse', cfg.rate.OVS_CH);
 
 % efectos de portadora activos (para ejercitar RFD + FCR)
 cfg.ch.carrier_en = true;

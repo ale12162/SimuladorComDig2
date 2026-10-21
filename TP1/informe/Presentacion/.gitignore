@@ -1,0 +1,10 @@
+# Archivos de compilacion de LaTeX / beamer
+*.aux
+*.fdb_latexmk
+*.fls
+*.log
+*.nav
+*.out
+*.snm
+*.toc
+*.synctex.gz

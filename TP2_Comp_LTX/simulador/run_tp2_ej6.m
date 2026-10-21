@@ -1,4 +1,4 @@
-﻿%% RUN_TP2_EJ6  TP2 - Ejercicio 6: distorsion del driver
+%% RUN_TP2_EJ6  TP2 - Ejercicio 6: distorsion del driver
 %
 %  Se barre la no linealidad de Rapp del driver (bajando la tension de
 %  saturacion V_sat con la excitacion fija) y se mide la penalidad de
@@ -7,7 +7,7 @@
 %  y sin distorsion.
 
 clear; close all; clc;
-fig_dir = fullfile('..', 'Informes', 'TP2_Comp_LTX', 'figuras');
+fig_dir = fullfile('..', 'informe', 'figuras');
 res_dir = 'resultados_tp2';
 if ~exist(fig_dir, 'dir'), mkdir(fig_dir); end
 if ~exist(res_dir, 'dir'), mkdir(res_dir); end
