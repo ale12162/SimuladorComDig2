@@ -4,30 +4,51 @@ function stages = fsm_rx(varargin)
 %   habilitan/deshabilitan cada algoritmo del lazo de DSP.
 %
 %   Campos por etapa:
-%     name     : etiqueta
-%     Nsym     : cantidad de simbolos que dura la etapa
-%     ffe_mode : 'off' | 'cma' | 'dd'    (modo de adaptacion del FFE)
-%     rfd_mode : 'off' | 'acq' | 'trk'   (gear shifting del RFD)
-%     fcr_en   : habilita el DPLL fino
-%     fcr_mode : '4th' | 'dd'
-%     ber_en   : la etapa participa de la estimacion de BER
-%     align_en : la etapa se usa para alineacion / deteccion de cycle slip
+%     name      : etiqueta
+%     Nsym      : cantidad de simbolos que dura la etapa
+%     ffe_mode  : 'off' | 'cma' | 'dd'    (modo de adaptacion del FFE)
+%     rfd_mode  : 'off' | 'acq' | 'trk'   (gear shifting del RFD)
+%     fcr_en    : habilita el DPLL fino
+%     fcr_mode  : '4th' | 'dd'
+%     ber_en    : la etapa participa de la estimacion de BER
+%     align_en  : la etapa se usa para alineacion / deteccion de cycle slip
+%     iq_en     : adapta el compensador de desbalance I/Q   (solo modo LTX)
+%     sk_en     : adapta el compensador de skew             (solo modo LTX)
+%     align2_en : la etapa se usa para la alineacion 2      (solo modo LTX)
 %
-%   Uso:  stages = fsm_rx();                 % secuencia por defecto (7 etapas)
-%         stages = fsm_rx('Nsym',[3e4 ...]); % override de longitudes
+%   Uso:  stages = fsm_rx();                  % TP1: 7 etapas
+%         stages = fsm_rx('ltx', true);       % TP2: 10 etapas con compensacion del LTX
+%         stages = fsm_rx('Nsym', N);         % override de longitudes; con
+%                                             % numel(N) = 10 se usa el modo LTX
 
 p = inputParser;
-p.addParameter('Nsym', [60e3 50e3 30e3 20e3 20e3 10e3 100e3]);
-p.addParameter('enable', true(1,7));   % permite saltear etapas (Nsym=0)
+p.addParameter('Nsym', []);
+p.addParameter('ltx', []);
+p.addParameter('enable', []);
 p.parse(varargin{:});
-N  = p.Results.Nsym;
+N   = p.Results.Nsym;
+ltx = p.Results.ltx;
+
+if isempty(ltx), ltx = (numel(N) == 10); end
+if ltx
+    N_def = [60e3 50e3 30e3 20e3 20e3 10e3 40e3 60e3 10e3 100e3];
+else
+    N_def = [60e3 50e3 30e3 20e3 20e3 10e3 100e3];
+end
+if isempty(N), N = N_def; end
+ns = numel(N_def);
+if numel(N) ~= ns
+    error('fsm_rx: se esperaban %d longitudes de etapa', ns);
+end
 en = p.Results.enable;
+if isempty(en), en = true(1, ns); end
 N(~en) = 0;
 
 s = struct('name','', 'Nsym',0, 'ffe_mode','off', 'rfd_mode','off', ...
-           'fcr_en',false, 'fcr_mode','4th', 'ber_en',false, 'align_en',false);
+           'fcr_en',false, 'fcr_mode','4th', 'ber_en',false, 'align_en',false, ...
+           'iq_en',false, 'sk_en',false, 'align2_en',false);
 
-stages = repmat(s,1,7);
+stages = repmat(s, 1, ns);
 
 % 1) FFE-CMA  ------------------------------------------------------------
 stages(1).name='1:FFE-CMA';            stages(1).Nsym=N(1);
@@ -58,11 +79,36 @@ stages(6).ffe_mode='dd';
 stages(6).fcr_en=true;     stages(6).fcr_mode='dd';
 stages(6).align_en=true;
 
-% 7) Estimacion de BER ---------------------------------------------------
-stages(7).name='7:BER';                stages(7).Nsym=N(7);
-stages(7).ffe_mode='dd';
-stages(7).fcr_en=true;     stages(7).fcr_mode='dd';
-stages(7).ber_en=true;
+if ~ltx
+    % 7) Estimacion de BER -----------------------------------------------
+    stages(7).name='7:BER';            stages(7).Nsym=N(7);
+    stages(7).ffe_mode='dd';
+    stages(7).fcr_en=true;     stages(7).fcr_mode='dd';
+    stages(7).ber_en=true;
+else
+    % 7) Compensacion de desbalance I/Q ----------------------------------
+    stages(7).name='7:IQ-Imb';         stages(7).Nsym=N(7);
+    stages(7).iq_en=true;
+
+    % 8) Compensacion de skew --------------------------------------------
+    stages(8).name='8:Skew';           stages(8).Nsym=N(8);
+    stages(8).iq_en=true;      stages(8).sk_en=true;
+
+    % 9) Alineacion 2 ----------------------------------------------------
+    stages(9).name='9:Align2';         stages(9).Nsym=N(9);
+    stages(9).iq_en=true;      stages(9).sk_en=true;
+    stages(9).align2_en=true;
+
+    % 10) Estimacion de BER ----------------------------------------------
+    stages(10).name='10:BER';          stages(10).Nsym=N(10);
+    stages(10).iq_en=true;     stages(10).sk_en=true;
+    stages(10).ber_en=true;
+
+    for k = 7:10                       % el lazo principal sigue en DD
+        stages(k).ffe_mode='dd';
+        stages(k).fcr_en=true;  stages(k).fcr_mode='dd';
+    end
+end
 
 stages = stages([stages.Nsym] > 0);
 end

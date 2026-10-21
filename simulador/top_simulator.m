@@ -7,19 +7,35 @@ function out = top_simulator(cfg)
 %        -> Aligner -> Cycle Slip Correction -> BER Checker
 %   FSM RX controla la secuencia de algoritmos (7 etapas).
 %
+%   TP2 (compensacion de efectos de transmisor):
+%   TX:  cfg.tx.dpmzm.en -> transmisor optico DP-MZM (tx_dpmzm): 4 lanes,
+%        desperfectos del LTX, Driver y MZM; se usa la polarizacion H.
+%   RX:  cfg.rx.ltx.en   -> FSM de 10 etapas: ... -> Align+CS -> IQ imbalance
+%        -> Skew -> Alineacion 2 (por lane) -> BER  (ltx_compensator, aligner_lanes)
+%
 %   out = top_simulator(cfg)   con cfg = config_default()
 
 if nargin < 1, cfg = config_default(); end
 t0 = tic;
+
+% Modo LTX (TP2): la FSM necesita las 10 etapas
+ltx_en = isfield(cfg.rx, 'ltx') && cfg.rx.ltx.en;
+if ltx_en && numel(cfg.fsm) ~= 10
+    cfg.fsm = fsm_rx('ltx', true);
+end
 
 % La cantidad de simbolos la fija SIEMPRE la FSM: si el usuario modifico
 % cfg.fsm, cfg.sim.Nsym se recalcula solo.
 cfg.sim.Nsym = sum([cfg.fsm.Nsym]);
 
 %% ================= TRANSMISOR =================
-tx        = qam_generator(cfg);
-[tx.xps, tx.h_ps] = pulse_shaping(tx.sym, cfg);              % OVS_TX [SPS]
-tx.x      = resampler(tx.xps, cfg.rate.OVS_CH, cfg.rate.OVS_TX);  % OVS_CH
+if isfield(cfg.tx, 'dpmzm') && cfg.tx.dpmzm.en
+    tx = tx_dpmzm(cfg);                                       % DP-MZM @ OVS_CH
+else
+    tx        = qam_generator(cfg);
+    [tx.xps, tx.h_ps] = pulse_shaping(tx.sym, cfg);           % OVS_TX [SPS]
+    tx.x      = resampler(tx.xps, cfg.rate.OVS_CH, cfg.rate.OVS_TX);  % OVS_CH
+end
 
 %% ================= CANAL ======================
 [ch.y, ch.info] = channel(tx.x, cfg);
@@ -36,11 +52,37 @@ idx_al = dsp.idx_align;
 if isempty(idx_al), idx_al = dsp.idx_ber; end
 al  = aligner(dsp.a_hat, tx.sym, idx_al, cfg);
 
-idx_cs = [idx_al; dsp.idx_ber];
-cs  = cycle_slip_correction(dsp.y_rot, dsp.a_hat, al, idx_cs, cfg);
+if ~ltx_en
+    idx_cs = [idx_al; dsp.idx_ber];
+    cs  = cycle_slip_correction(dsp.y_rot, dsp.a_hat, al, idx_cs, cfg);
 
-%% ---- Etapa 7: estimacion de BER ----
-ber = ber_checker(cs.y_rot, al, dsp.idx_ber, tx, cfg);
+    %% ---- Etapa 7: estimacion de BER ----
+    ber = ber_checker(cs.y_rot, al, dsp.idx_ber, tx, cfg);
+else
+    % la correccion de CS se aplica desde la etapa 6 hasta el final
+    idx_cs = (idx_al(1):dsp.Nsym).';
+    cs  = cycle_slip_correction(dsp.y_rot, dsp.a_hat, al, idx_cs, cfg);
+
+    %% ---- Etapas 7 y 8: compensacion de desbalance I/Q y de skew ----
+    lt  = ltx_compensator(cs.y_rot, dsp.stage, dsp.stages, cfg);
+
+    %% ---- Etapa 9: alineacion 2 (un retardo por lane) ----
+    a2_flag = [dsp.stages.align2_en];
+    idx_al2 = find(a2_flag(dsp.stage));
+    al2 = aligner_lanes(lt.a_hat, tx, idx_al2(:), cfg);
+
+    %% ---- Etapa 10: estimacion de BER ----
+    % los ultimos D simbolos del compensador de skew se calculan con el
+    % relleno de ceros del FIR: se excluyen de la ventana de BER
+    dsp.idx_ber = dsp.idx_ber(dsp.idx_ber <= dsp.Nsym - lt.D);
+    z_ber = lt.z;
+    if cfg.rx.unbias.en
+        [z_ber, lt.alpha] = unbias_gain(lt.z, dsp.idx_ber, cfg);
+    end
+    ber = ber_checker(z_ber, al2, dsp.idx_ber, al2.txb, cfg);
+    al_first = al;
+    al  = al2;
+end
 
 %% ================= SALIDA =====================
 out.cfg  = cfg;
@@ -51,6 +93,10 @@ out.dsp  = dsp;
 out.al   = al;
 out.cs   = cs;
 out.ber  = ber;
+if ltx_en
+    out.lt  = lt;
+    out.al1 = al_first;
+end
 out.time = toc(t0);
 
 if cfg.sim.verbose

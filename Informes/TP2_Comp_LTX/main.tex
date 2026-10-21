@@ -1,0 +1,14 @@
+\documentclass{report}
+\input{Preamble}	% Paquetes + preámbulo de configuraciones.
+
+\begin{document}
+\include{Portada}	% Portada.
+
+\input{TP2_Comp_LTX}
+
+% Bibliography
+\renewcommand{\bibname}{Referencias bibliográficas}	% Redefinir el nombre de la sección
+\bibliographystyle{IEEEtran} % Setear el formato de bibliografía - (ieeetr: es IEEEtran ordena por aparición en el texto)
+\nocite{*}
+\bibliography{bibliography}	% Construye la bibliografía
+\end{document}

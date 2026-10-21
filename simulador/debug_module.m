@@ -70,8 +70,13 @@ for s = 1:ns
     idx = find(out.dsp.stage == s);
     if isempty(idx), continue; end
     idx = idx(max(1,end-4000):end);           % ultimos simbolos de la etapa
+    idx = idx(idx <= out.dsp.Nsym - 20);      % sin el borde final de la simulacion
     subplot(ceil(ns/3), 3, s);
-    plot(real(out.dsp.y_rot(idx)), imag(out.dsp.y_rot(idx)), '.', 'MarkerSize', 1);
+    yc = out.dsp.y_rot;
+    if isfield(out, 'lt') && (stages(s).iq_en || stages(s).sk_en)
+        yc = out.lt.z;                        % salida de los compensadores del LTX
+    end
+    plot(real(yc(idx)), imag(yc(idx)), '.', 'MarkerSize', 1);
     hold on; c = qam_constellation(M);
     plot(real(c), imag(c), 'r+', 'LineWidth', 1);
     axis equal; grid on; xlim([-1.6 1.6]); ylim([-1.6 1.6]);
@@ -110,6 +115,24 @@ mark_stages(out);
 subplot(3,2,6);
 plot(unwrap(out.dsp.theta)); grid on; xlabel('simbolo'); ylabel('\theta [rad]');
 title('Salida del NCO (fase acumulada)'); mark_stages(out);
+
+%% ---------- 6) Compensadores del LTX ----------
+if isfield(out, 'lt')
+    lt = out.lt;
+    nn = (1:size(lt.A_hist,2)) * lt.w_dec;
+    figure('Name','DEBUG - Compensadores LTX','Color','w');
+    subplot(2,2,[1 2]);
+    hA = plot(nn, lt.A_hist.'); grid on
+    xlabel('simbolo'); ylabel('coeficiente');
+    legend(hA, {'A_{11}','A_{21}','A_{12}','A_{22}'}, 'Location','east', 'AutoUpdate','off');
+    title('Compensador de desbalance I/Q: evolucion de A'); mark_stages(out);
+    subplot(2,2,3);
+    plot(nn, lt.hI_hist.'); grid on; xlabel('simbolo'); ylabel('h_I');
+    title('Compensador de skew: lane I'); mark_stages(out);
+    subplot(2,2,4);
+    plot(nn, lt.hQ_hist.'); grid on; xlabel('simbolo'); ylabel('h_Q');
+    title('Compensador de skew: lane Q'); mark_stages(out);
+end
 end
 
 % =========================================================================

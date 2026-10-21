@@ -22,6 +22,33 @@ cfg.rate.OVS_DSP  = 2;           % sps en el DSP del receptor
 cfg.tx.rolloff    = 0.5;         % roll-off del RRC
 cfg.tx.span       = 20;          % span del RRC en simbolos
 
+%% ---------------- Transmisor optico DP-MZM (TP2) ----------------
+% Con dpmzm.en = false se usa el transmisor electrico del TP1.
+cfg.tx.dpmzm.en      = false;
+cfg.tx.laser.P_dBm   = 20;       % laser ideal (sin RIN ni ruido de fase)
+% Driver (modelo del TP de optica). drv.en = false -> ganancia G ideal
+cfg.tx.drv.en        = false;
+cfg.tx.drv.Vpp_dac   = 0.4;      % pico a pico de la forma de onda del DAC [V]
+cfg.tx.drv.G_dB      = 15;       % ganancia en DC [dB]
+cfg.tx.drv.fn_norm   = 2/3;      % frecuencia natural / BR
+cfg.tx.drv.zeta      = 0.25;     % amortiguamiento
+cfg.tx.drv.V_rms_noise = 0;      % ruido a la salida [V rms]
+cfg.tx.drv.nl_en     = false;    % no linealidad de Rapp
+cfg.tx.drv.p         = 2;
+cfg.tx.drv.V_sat     = 3;        % [V]
+% Modulador DP-IQ. mzm.en = false -> modulador IQ lineal ideal
+cfg.tx.mzm.en        = false;
+cfg.tx.mzm.Vpi       = 5;        % [V]
+cfg.tx.mzm.il_xy     = 0;        % [dB]
+cfg.tx.mzm.il_iq     = 0;        % [dB]
+cfg.tx.mzm.il_mzm    = 0;        % [dB]
+cfg.tx.mzm.er        = Inf;      % [dB]
+cfg.tx.mzm.filter_en = false;    % respuesta electro-optica del MZM
+% Desperfectos del LTX (lane Q respecto de la I)
+cfg.tx.imp.gain_dB   = 0;        % error de ganancia I/Q [dB]
+cfg.tx.imp.phase_deg = 0;        % desbalance de fase I/Q [deg]
+cfg.tx.imp.skew_UI   = 0;        % skew I/Q [UI]
+
 %% ---------------- Canal ----------------
 cfg.ch.EbN0_dB    = 14;          % Eb/N0 objetivo
 cfg.ch.h          = 1;           % respuesta al impulso del canal @ OVS_CH
@@ -86,6 +113,17 @@ cfg.rx.align.Ncorr = 4096;       % simbolos usados para correlacion
 cfg.rx.align.dmax  = 200;        % rango de busqueda de delay [simbolos]
 cfg.rx.cs.en       = true;
 cfg.rx.cs.blk      = 256;        % tamano de bloque para deteccion de CS
+
+%% ---------------- Compensacion del LTX (TP2) ----------------
+% Con ltx.en = true la FSM pasa a 10 etapas (ver fsm_rx) y se agregan los
+% compensadores de desbalance I/Q y de skew a la salida del lazo principal.
+cfg.rx.ltx.en     = false;
+cfg.rx.iqc.mu     = 3e-4;        % paso del compensador de desbalance I/Q
+cfg.rx.skc.mu     = 3e-4;        % paso del compensador de skew (fase DD)
+cfg.rx.skc.Ntaps  = 7;           % taps por lane del compensador de skew (impar)
+cfg.rx.skc.Nmma   = 40e3;        % simbolos de arranque ciego (MMA) del skew
+cfg.rx.skc.mu_mma = 3e-4;        % paso durante el arranque ciego
+cfg.rx.unbias.en  = true;        % corrige el sesgo MMSE antes del slicer final
 
 %% ---------------- FSM RX ----------------
 cfg.fsm = fsm_rx();              % secuencia de etapas por defecto
