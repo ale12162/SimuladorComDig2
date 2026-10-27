@@ -19,8 +19,12 @@ NERR = 200;  NMIN = 30e3;  NMAX = 1.5e6;
 M    = 16;
 
 casos = {'TP2: 10 etapas (con compensadores LTX)', 'TP1: 7 etapas'};
+archivo = fullfile(res_dir, 'tp2_ej2.mat');
 R = struct();
-for c = 1:2
+if exist(archivo, 'file')             % la curva base ya esta calculada
+    s = load(archivo, 'R');  R = s.R;
+end
+for c = 1:2 * isempty(fieldnames(R))
     cfg = config_tp2();
     if c == 2
         cfg.rx.ltx.en = false;
@@ -86,46 +90,60 @@ legend('Location','northeast'); ylim([-0.2 0.4]);
 exportgraphics(fig, fullfile(fig_dir, 'ej2_penalidad_base.png'), 'Resolution', 200);
 
 %% ======================= b) Respuesta del driver ====================
+% Caso realista: el MZM tiene su respuesta electro-optica, que cae en
+% Nyquist, y el driver se sintoniza con un pico para compensarla.
+%   A) MZM con su respuesta, driver ideal (ganancia plana)
+%   B) MZM con su respuesta, driver con pico (fn = 2BR/3, zeta = 0.25)
+% El FFE debe cambiar su solucion segun lo que el transmisor ya compenso.
 cfg0 = config_tp2();
-cfg0.ch.EbN0_dB   = 16;
-cfg0.tx.drv.en    = true;            % modelo del driver, solo la parte lineal
-cfg0.tx.drv.nl_en = false;
+cfg0.ch.EbN0_dB      = 16;
+cfg0.tx.mzm.en       = true;
+cfg0.tx.mzm.filter_en = true;
+cfg0.tx.drv.Vpp_dac  = 0.2;          % excitacion chica: MZM en su zona lineal
+cfg0.tx.drv.nl_en    = false;        % solo la respuesta lineal del driver
 cfg0.tx.drv.V_rms_noise = 0;
-cfg0.tx.drv.fn_norm = 0.35;          % frecuencia natural / BR
-cfg0.tx.drv.zeta    = 0.7;
 
-cfg_ideal = cfg0;  cfg_ideal.tx.drv.en = false;
-o_id  = top_simulator(cfg_ideal);
-o_drv = top_simulator(cfg0);
-fprintf('\nb) Sin driver: SNR=%.2f dB | Con driver: SNR=%.2f dB\n', o_id.ber.SNR_dB, o_drv.ber.SNR_dB);
+cA = cfg0;  cA.tx.drv.en = false;
+cB = cfg0;  cB.tx.drv.en = true;     % fn_norm = 2/3, zeta = 0.25 (config_default)
+oA = top_simulator(cA);
+oB = top_simulator(cB);
+fprintf('\nb) MZM solo: SNR=%.2f dB | MZM + driver con pico: SNR=%.2f dB\n', ...
+        oA.ber.SNR_dB, oB.ber.SNR_dB);
 
-OVS_CH = cfg0.rate.OVS_CH;  OVS = cfg0.rate.OVS_DSP;
-f  = linspace(-1, 1, 801);                   % f / BR
-Hd = freqz(o_drv.tx.drv_ba{1}, o_drv.tx.drv_ba{2}, f*cfg0.rate.BR, cfg0.rate.BR*OVS_CH);
-Hd = Hd / abs(Hd(f == 0));
-W0 = freqz(o_id.dsp.w,  1, f, OVS);
-W1 = freqz(o_drv.dsp.w, 1, f, OVS);
-g0 = abs(W0(f == 0));  W0 = W0/g0;  W1 = W1/abs(W1(f == 0));
+OVS_CH = cfg0.rate.OVS_CH;  OVS = cfg0.rate.OVS_DSP;  fsCH = cfg0.rate.BR*OVS_CH;
+f   = linspace(-1, 1, 801);                   % f / BR
+s   = load(fullfile('optica', 'mzm_filter.mat'), 'h_mzm');
+Hm  = freqz(s.h_mzm(:).'/sum(s.h_mzm), 1, f*cfg0.rate.BR, fsCH);
+Hd  = freqz(oB.tx.drv_ba{1}, oB.tx.drv_ba{2}, f*cfg0.rate.BR, fsCH);
+Hm  = abs(Hm) / abs(Hm(f == 0));   Hd = abs(Hd) / abs(Hd(f == 0));
+WA  = freqz(oA.dsp.w, 1, f, OVS);  WA = abs(WA) / abs(WA(f == 0));
+WB  = freqz(oB.dsp.w, 1, f, OVS);  WB = abs(WB) / abs(WB(f == 0));
+dB  = @(x) 20*log10(x);
 
-fig = figure('Color','w'); hold on
-plot(f, 20*log10(abs(Hd)), 'LineWidth', 1.3, 'DisplayName', 'Driver |H_{drv}|');
-plot(f, 20*log10(abs(W0)), '--', 'LineWidth', 1.3, 'DisplayName', 'FFE sin driver');
-plot(f, 20*log10(abs(W1)), 'LineWidth', 1.3, 'DisplayName', 'FFE con driver');
-plot(f, 20*log10(abs(Hd.*W1)), 'k:', 'LineWidth', 1.5, 'DisplayName', 'Driver x FFE');
+fig = figure('Color','w');
+subplot(1,2,1); hold on
+plot(f, dB(Hm), 'LineWidth', 1.3, 'DisplayName', 'MZM |H_{MZM}|');
+plot(f, dB(Hd), 'LineWidth', 1.3, 'DisplayName', 'Driver |H_{drv}|');
+plot(f, dB(Hd.*Hm), 'k', 'LineWidth', 1.5, 'DisplayName', 'Driver x MZM');
 xline([-0.5 0.5], ':', 'HandleVisibility', 'off');
 grid on; box on; xlim([-1 1]); ylim([-20 15]);
 xlabel('f / BR'); ylabel('|H(f)| normalizada [dB]'); legend('Location','south');
+title('Transmisor');
+subplot(1,2,2); hold on
+plot(f, dB(WA), 'LineWidth', 1.3, 'DisplayName', 'FFE: MZM solo');
+plot(f, dB(WB), 'LineWidth', 1.3, 'DisplayName', 'FFE: MZM + driver');
+plot(f, dB(Hm.*WA), ':', 'LineWidth', 1.5, 'DisplayName', 'MZM x FFE');
+plot(f, dB(Hd.*Hm.*WB), 'k:', 'LineWidth', 1.5, 'DisplayName', 'Driver x MZM x FFE');
+xline([-0.5 0.5], ':', 'HandleVisibility', 'off');
+grid on; box on; xlim([-1 1]); ylim([-20 15]);
+xlabel('f / BR'); ylabel('|H(f)| normalizada [dB]'); legend('Location','south');
+title('FFE');
+set(fig, 'Units', 'pixels', 'Position', [0 0 1400 560]);
 exportgraphics(fig, fullfile(fig_dir, 'ej2_ffe_driver.png'), 'Resolution', 200);
 
-fig = figure('Color','w');
-subplot(1,2,1); stem(0:numel(o_id.dsp.w)-1,  abs(o_id.dsp.w),  'filled'); grid on
-xlabel('tap'); ylabel('|w|'); title('FFE sin driver');
-subplot(1,2,2); stem(0:numel(o_drv.dsp.w)-1, abs(o_drv.dsp.w), 'filled'); grid on
-xlabel('tap'); ylabel('|w|'); title('FFE con driver');
-exportgraphics(fig, fullfile(fig_dir, 'ej2_ffe_taps.png'), 'Resolution', 200);
-
 [~, i5] = min(abs(f - 0.5));
-fprintf('Atenuacion del driver en Nyquist: %.2f dB | ganancia del FFE en Nyquist: sin driver %.2f dB, con driver %.2f dB\n', ...
-        20*log10(abs(Hd(i5))), 20*log10(abs(W0(i5))), 20*log10(abs(W1(i5))));
+fprintf('En Nyquist: MZM %.2f dB | driver %+.2f dB | driver x MZM %.2f dB\n', ...
+        dB(Hm(i5)), dB(Hd(i5)), dB(Hd(i5)*Hm(i5)));
+fprintf('Ganancia del FFE en Nyquist: MZM solo %+.2f dB | MZM + driver %+.2f dB\n', dB(WA(i5)), dB(WB(i5)));
 
-save(fullfile(res_dir, 'tp2_ej2.mat'), 'R', 'EbN0', 'pen_tg', 'f', 'Hd', 'W0', 'W1');
+save(archivo, 'R', 'EbN0', 'pen_tg', 'f', 'Hm', 'Hd', 'WA', 'WB');

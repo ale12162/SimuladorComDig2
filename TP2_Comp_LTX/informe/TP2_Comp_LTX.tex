@@ -268,25 +268,43 @@ calibraron:
 
 \subsubsection*{Respuesta en frecuencia del driver}
 
-Se habilitó la respuesta lineal del driver, sin ruido ni no linealidad,
-con frecuencia natural $0.35\,BR$ y amortiguamiento $0.7$: atenúa
-$7.5$~dB en la frecuencia de Nyquist. La Figura~\ref{fig:ej2_drv} compara
-la respuesta del FFE con y sin el driver.
+La respuesta electro-óptica del MZM cae $4.9$~dB en la frecuencia de
+Nyquist, y por eso el driver se sintoniza con un pico que la compense,
+como en el trabajo práctico de óptica ($f_n = 2BR/3$, $\zeta = 0.25$).
+Para verificar que el FFE adapta su solución a la respuesta lineal que
+tiene adelante, se compararon dos casos, ambos con el MZM con su respuesta
+en frecuencia, excitación chica (zona lineal) y $E_b/N_0 = 16$~dB:
+
+\begin{itemize}\itemsep2pt
+\item A: driver ideal (ganancia plana), es decir, el MZM sin compensar.
+\item B: driver con su respuesta lineal, sin ruido ni no linealidad.
+\end{itemize}
 
 \begin{figure}[H]
 \centering
-\includegraphics[width=0.8\textwidth]{figuras/ej2_ffe_driver.png}
-\caption{Respuesta del driver, del FFE sin y con el driver, y del producto
-driver por FFE ($E_b/N_0 = 16$~dB).}
+\includegraphics[width=\textwidth]{figuras/ej2_ffe_driver.png}
+\caption{Izquierda: respuesta del MZM, del driver y de ambos en cascada.
+Derecha: respuesta final del FFE en los casos A (MZM solo) y B (MZM con
+driver), y del transmisor completo por el FFE ($E_b/N_0 = 16$~dB).}
 \label{fig:ej2_drv}
 \end{figure}
 
-Sin el driver el FFE es plano. Con el driver, el FFE cambia su solución y
-levanta $7.8$~dB en Nyquist, de modo que el producto queda plano en la
-banda de la señal: compensa la distorsión lineal del driver. Fuera de la
-banda de la señal ($|f| > 0.75\,BR$) no hay energía y el FFE no tiene
-nada que ecualizar. El costo es la amplificación del ruido en las altas
-frecuencias: la SNR en el slicer baja de $22.0$ a $20.2$~dB.
+En el caso A el FFE compensa la caída del MZM: levanta hasta unos $6$~dB
+cerca de Nyquist, y el producto MZM por FFE queda plano en la banda. En el
+caso B el pico del driver ($+4.4$~dB en Nyquist, con máximo cerca de
+$0.63\,BR$) ya compensó la mayor parte de esa caída: el conjunto driver
+por MZM queda entre $0$ y $-1.6$~dB en la banda de la señal, y al FFE le
+alcanza con levantar unos $2.5$~dB. El FFE cambia su solución según lo
+que el transmisor ya ecualizó, y en ambos casos la respuesta total queda
+plana. El realce que mantiene cerca de Nyquist corresponde a la zona de
+transición del roll-off ($0.25$ a $0.75\,BR$), donde lo que importa no es
+cada frecuencia por separado sino que la respuesta, una vez muestreada a
+un símbolo por muestra, sea plana.
+
+Que el driver haga parte del trabajo tiene una ventaja: el FFE amplifica
+menos el ruido que entra en el canal. La SNR en el slicer pasa de
+$21.0$~dB con el MZM solo a $21.3$~dB con el driver, contra $22.0$~dB del
+transmisor ideal.
 
 %==========================================================================
 \subsection*{Ejercicio 3: Compensación de desbalance I/Q}
